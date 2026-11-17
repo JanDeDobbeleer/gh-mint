@@ -31,38 +31,6 @@ type session struct {
 	environ           []string
 }
 
-func copilotArgs(args []string) ([]string, error) {
-	var result []string
-	for i := 0; i < len(args); i++ {
-		name, value, inline := strings.Cut(args[i], "=")
-		switch name {
-		case "--silent", "-s":
-			if inline {
-				return nil, errors.New("silent does not take a value")
-			}
-			result = append(result, "--silent")
-		case "--model", "--prompt", "-p":
-			if !inline {
-				i++
-				if i >= len(args) {
-					return nil, fmt.Errorf("%s requires a value", name)
-				}
-				value = args[i]
-			}
-			if value == "" {
-				return nil, fmt.Errorf("%s requires a nonempty value", name)
-			}
-			if name == "-p" {
-				name = "--prompt"
-			}
-			result = append(result, name+"="+value)
-		default:
-			return nil, fmt.Errorf("copilot argument %q is not permitted; supported options are --model, --prompt (-p), and --silent (-s)", name)
-		}
-	}
-	return result, nil
-}
-
 func (s session) runWithToken(ctx context.Context, token installationToken) error {
 	defer func() {
 		revokeCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -122,7 +90,7 @@ func (s session) runWithToken(ctx context.Context, token installationToken) erro
 	cmd.Stdin = s.stdin
 	cmd.Stdout = s.stdout
 	cmd.Stderr = s.stderr
-	if _, err := fmt.Fprintf(s.stderr, "gh mint: %s/%s; repository token expires at %s; sandbox requested, bypass disabled\n",
+	if _, err := fmt.Fprintf(s.stderr, "gh mint: %s/%s; repository token expires at %s; sandbox requested\n",
 		s.repo.Owner, s.repo.Name, token.ExpiresAt.Local().Format(time.RFC3339)); err != nil {
 		return errors.New("cannot report launch status")
 	}

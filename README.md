@@ -30,7 +30,7 @@ From this repository:
 ```powershell
 go build -trimpath -o gh-mint.exe .
 gh extension install .
-gh mint --help
+gh mint setup --help
 ```
 
 On macOS or Linux, build with `go build -trimpath -o gh-mint .`.
@@ -132,18 +132,19 @@ Run inside a Git working tree:
 
 ```powershell
 gh mint
-gh mint -- --model YOUR_MODEL
-gh mint -- -p "Explain this repository" -s
+gh mint --model YOUR_MODEL
+gh mint -p "Explain this repository" -s
 ```
 
-`gh mint copilot` is an alias for the default launch command. Copilot starts at the checkout root, including when
-you invoke the extension from a subdirectory. A non-default or ambiguous remote is never silently selected.
+Except for the `setup` command, all arguments after `gh mint` are passed to Copilot unchanged, including `--help`,
+`--version`, and `--`. They are passed without a shell. Copilot starts at the checkout root by default, including
+when you invoke the extension from a subdirectory. A non-default or ambiguous remote is never silently selected.
 
-Only `--model`, `--prompt` / `-p`, and `--silent` / `-s` are forwarded. Values are passed as single arguments, without
-a shell. Resume, directory changes, extra configuration, plugins, and permission-changing launch arguments are
-rejected.
+**Copilot arguments can weaken the launcher's sandbox and credential protections.** For example, options that disable
+sandboxing, change the working directory, enable extra configuration, or alter secret filtering may expose credentials.
+Only pass arguments you trust. Copilot handles argument validation.
 
-Every launch:
+By default, the launcher:
 
 - Requests sandboxing explicitly with `--sandbox`, and sets `allowBypass` to `false`.
 - Disables automatic Git and GitHub CLI account-credential forwarding.
@@ -158,8 +159,8 @@ Every launch:
   variables, and arbitrary environment variables are not forwarded.
 - Disables automatic developer-tool directory grants. Builds that need extra caches or credentials may not work.
 
-An unsupported sandbox host does not silently fall back for shell commands because sandboxing is explicitly
-requested. This does not mean that the Copilot host process itself is sandboxed.
+An unsupported sandbox host does not silently fall back for shell commands when sandboxing is requested.
+This does not mean that the Copilot host process itself is sandboxed.
 
 ### Lifetime and cleanup
 
@@ -168,7 +169,7 @@ Changing directories, remotes, or the prompt does not expand the already-minted 
 
 The launcher attempts to revoke the token on normal exit, child failure, and handled interruption. A hard kill or
 failed revocation leaves the token valid until its expiry. Temporary configurations and session data are removed
-on handled exit. Sessions and transcripts are not retained for resume.
+on handled exit. The isolated session data is not retained for resume.
 
 Git operations do not automatically use `GH_TOKEN`. This version does not install a Git credential helper or enable
 personal SSH/Git credentials; use GitHub CLI API operations within the scoped session.

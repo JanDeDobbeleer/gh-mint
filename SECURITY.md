@@ -23,9 +23,10 @@ Do not invoke setup from an untrusted checkout or accept an untrusted Copilot ex
   best-effort basis. A private key on the same host is not cryptographically inaccessible to Copilot.
 - This does not isolate against other processes running as your OS user, administrators, a compromised Copilot
   binary, or a compromised GitHub CLI binary.
-- User-editable sandbox settings are not managed enforcement. This extension starts with the requested policy and
-  rejects unsafe launch flags; it cannot promise that a user cannot disable or edit policy during the session.
-  Mandatory sandboxing requires an administrator-controlled Copilot managed policy.
+- User-editable sandbox settings are not managed enforcement. This extension requests a sandbox policy, but passes
+  Copilot arguments unchanged. Arguments can disable or weaken sandboxing, secret filtering, and other protections.
+  Settings can also change during a session. Mandatory sandboxing requires an administrator-controlled Copilot
+  managed policy.
 - Project configuration is checked at startup. A concurrently modified checkout or settings changed during a
   session are outside that check. The minted token remains scoped, but alternate credentials must remain absent.
 - Local sandbox proxy and network controls on Windows rely on applications honoring proxy settings. They do not
@@ -34,9 +35,9 @@ Do not invoke setup from an untrusted checkout or accept an untrusted Copilot ex
   endpoints. It limits the repository authority GitHub grants to that token.
 - Secrets already present in the checkout, unrecognized credential files outside it, copied keys, system credential
   helpers, and privileged policy hooks require separate review. The common-path denial list is not exhaustive.
-- The separate Copilot credential exists in the unsandboxed host's environment. Secret filtering covers shell and
-  MCP environments; optional extensions, plugins, and project language servers are disabled or rejected rather
-  than assumed to have identical filtering.
+- The separate Copilot credential exists in the unsandboxed host's environment. By default, secret filtering covers
+  shell and MCP environments; optional extensions, plugins, and project language servers are disabled or rejected.
+  Forwarded arguments can change these protections.
 - File modes are not a substitute for NTFS ACLs on Windows. The App key is read from your chosen file, not moved into
   an OS keyring. The launcher configuration contains paths but must still be protected against modification.
 - Hard termination, system failure, or network failure can prevent cleanup and revocation. GitHub's token expiry

@@ -241,17 +241,30 @@ go test ./internal/mint -run TestCopilotReadsGeneratedSandboxPolicy
 Remove-Item Env:\GH_MINT_TEST_COPILOT
 ```
 
-CI checks Windows, Linux, and macOS. Tagged releases build the same platform binaries and asset names as
+CI checks Windows, Linux, and macOS. Every push to protected `main` automatically builds a release using the same
+platform binaries and asset names as
 [cli/gh-extension-precompile](https://github.com/cli/gh-extension-precompile). Windows executables are Authenticode
 signed with Azure Artifact Signing using the same account and certificate profile as oh-my-posh. Signatures must
 be valid and timestamped before publication. Other platforms are not Authenticode signed. GitHub build provenance
 attestations cover the final release binaries, including the signed Windows files.
 
-Before creating a release tag, configure the `AZURE_TENANT_ID`, `AZURE_CLIENT_ID`, and `AZURE_CLIENT_SECRET`
-repository secrets using the existing oh-my-posh signing identity. That identity needs the Artifact Signing
-Certificate Profile Signer role for the `oh-my-posh` profile in the `oh-my-posh` account at
+Before merging a release workflow change, configure the `AZURE_TENANT_ID`, `AZURE_CLIENT_ID`, and `AZURE_CLIENT_SECRET`
+secrets in the protected GitHub `release` environment using the existing oh-my-posh signing identity. Remove any
+repository-level copies: otherwise a different workflow could bypass the environment's approval gate.
+That identity needs the Artifact Signing Certificate Profile Signer role for the `oh-my-posh` profile in the `oh-my-posh` account at
 `https://weu.codesigning.azure.net`. Missing credentials or failed signing abort the release; unsigned Windows
 executables are never published as a fallback.
+
+Keep the `release` environment restricted to the `main` branch so workflows running from other branches or tags
+cannot access signing credentials. Main's required pull request checks are the release gate; the release workflow
+does not rerun tests. Conventional commits determine the next version: breaking changes increase the major version,
+features increase the minor version, and other changes increase the patch version.
+
+Versioning and build/sign jobs have only `contents: read`, and checkouts never retain Git credentials. A separate
+publication job receives signed binaries by immutable artifact ID; it alone has repository-write, OIDC, and attestation
+permissions, and it has no Azure credentials or source checkout. Release tags are created for the exact merged commit.
+Release tags are created automatically; only administrators may update or delete them. Tag pushes do not trigger
+release jobs. Repository administrators remain trusted to manage these controls.
 
 Workflow actions are pinned to commit SHAs. The extension naming and release layout follow
 [GitHub's extension authoring guide](https://docs.github.com/en/github-cli/github-cli/creating-github-cli-extensions).

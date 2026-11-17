@@ -2,20 +2,44 @@ name: Release
 
 on:
   push:
-    tags: ["v*"]
+    branches: [main]
 
 permissions: {}
 
+concurrency:
+  group: release-main
+  cancel-in-progress: false
+
 jobs:
-  release:
+  version:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      tag: ${{ steps.version.outputs.version_tag }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Calculate release version
+        id: version
+        uses: PaulHatch/semantic-version@5ae1354e589c5a67345fb2c6e65b025ff676d7c7 # v6.0.7
+        with:
+          search_commit_body: true
+
+  build:
+    needs: version
+    environment: release
     runs-on: windows-latest
     defaults:
       run:
         shell: pwsh
     permissions:
-      contents: write
-      id-token: write
-      attestations: write
+      contents: read
+    outputs:
+      artifact-id: ${{ steps.upload.outputs.artifact-id }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -31,12 +55,12 @@ jobs:
         run: |
           foreach ($name in @('AZURE_TENANT_ID', 'AZURE_CLIENT_ID', 'AZURE_CLIENT_SECRET')) {
             if ([string]::IsNullOrWhiteSpace([Environment]::GetEnvironmentVariable($name))) {
-              throw "Configure the $name repository secret before releasing."
+              throw "Configure the $name secret in the release environment before releasing."
             }
           }
       - name: Build release binaries
         env:
-          RELEASE_TAG: ${{ github.ref_name }}
+          RELEASE_TAG: ${{ needs.version.outputs.tag }}
         run: .\.github\scripts\build-release.ps1 -Version $env:RELEASE_TAG
       - name: Sign Windows executables
         uses: azure/artifact-signing-action@c7ab2a863ab5f9a846ddb8265964877ef296ee82 # v2.0.0
@@ -62,6 +86,32 @@ jobs:
               throw "Missing, invalid, or untimestamped Authenticode signature: $path"
             }
           }
+      - name: Upload signed binaries
+        id: upload
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: signed-release-binaries
+          path: dist
+          if-no-files-found: error
+          retention-days: 7
+
+  publish:
+    needs: [version, build]
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: pwsh
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    steps:
+      - name: Download signed binaries
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          artifact-ids: ${{ needs.build.outputs.artifact-id }}
+          path: dist
+          merge-multiple: true
       - name: Attest signed release binaries
         uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
         with:
@@ -69,7 +119,9 @@ jobs:
       - name: Publish release
         env:
           GH_TOKEN: ${{ github.token }}
-          RELEASE_TAG: ${{ github.ref_name }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ needs.version.outputs.tag }}
+          RELEASE_COMMIT: ${{ github.sha }}
         run: |
           $assets = @(Get-ChildItem -LiteralPath dist -File | ForEach-Object { $_.FullName })
           if ($assets.Count -eq 0) {
@@ -77,9 +129,13 @@ jobs:
           }
           & gh release view $env:RELEASE_TAG *> $null
           if ($LASTEXITCODE -eq 0) {
+            $commit = & gh api "repos/${env:GH_REPO}/commits/${env:RELEASE_TAG}" --jq .sha
+            if ($LASTEXITCODE -ne 0 -or $commit -ne $env:RELEASE_COMMIT) {
+              throw 'The existing release tag points to a different commit.'
+            }
             & gh release upload $env:RELEASE_TAG --clobber -- @assets
           } else {
-            $arguments = @('release', 'create', $env:RELEASE_TAG, '--verify-tag',
+            $arguments = @('release', 'create', $env:RELEASE_TAG, '--target', $env:RELEASE_COMMIT,
               '--title', "gh-mint $($env:RELEASE_TAG.Substring(1))", '--generate-notes')
             if ($env:RELEASE_TAG.Contains('-')) {
               $arguments += '--prerelease'

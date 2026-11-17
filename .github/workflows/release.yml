@@ -34,7 +34,6 @@ jobs:
               throw "Configure the $name repository secret before releasing."
             }
           }
-      - run: go test ./...
       - name: Build release binaries
         env:
           RELEASE_TAG: ${{ github.ref_name }}

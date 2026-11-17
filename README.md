@@ -246,8 +246,9 @@ CI checks Windows, Linux, and macOS. Tagged releases use the official
 Workflow actions are pinned to commit SHAs. The extension naming and release layout follow
 [GitHub's extension authoring guide](https://docs.github.com/en/github-cli/github-cli/creating-github-cli-extensions).
 
-Use [Conventional Commits](https://www.conventionalcommits.org/) for commits and pull request titles, for example
-`feat: add a launcher option` or `fix(config): validate the remote`. CI checks pull request titles.
+Use [Conventional Commits](https://www.conventionalcommits.org/) for commit messages, for example
+`feat: add a launcher option` or `fix(config): validate the remote`. CI checks every commit in pull requests
+and pushes to `main`, not pull request titles.
 
 ## License
 

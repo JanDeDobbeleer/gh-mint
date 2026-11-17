@@ -241,8 +241,18 @@ go test ./internal/mint -run TestCopilotReadsGeneratedSandboxPolicy
 Remove-Item Env:\GH_MINT_TEST_COPILOT
 ```
 
-CI checks Windows, Linux, and macOS. Tagged releases use the official
-[cli/gh-extension-precompile](https://github.com/cli/gh-extension-precompile) action with build provenance attestations.
+CI checks Windows, Linux, and macOS. Tagged releases build the same platform binaries and asset names as
+[cli/gh-extension-precompile](https://github.com/cli/gh-extension-precompile). Windows executables are Authenticode
+signed with Azure Artifact Signing using the same account and certificate profile as oh-my-posh. Signatures must
+be valid and timestamped before publication. Other platforms are not Authenticode signed. GitHub build provenance
+attestations cover the final release binaries, including the signed Windows files.
+
+Before creating a release tag, configure the `AZURE_TENANT_ID`, `AZURE_CLIENT_ID`, and `AZURE_CLIENT_SECRET`
+repository secrets using the existing oh-my-posh signing identity. That identity needs the Artifact Signing
+Certificate Profile Signer role for the `oh-my-posh` profile in the `oh-my-posh` account at
+`https://weu.codesigning.azure.net`. Missing credentials or failed signing abort the release; unsigned Windows
+executables are never published as a fallback.
+
 Workflow actions are pinned to commit SHAs. The extension naming and release layout follow
 [GitHub's extension authoring guide](https://docs.github.com/en/github-cli/github-cli/creating-github-cli-extensions).
 

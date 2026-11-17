@@ -218,6 +218,7 @@ go install golang.org/x/tools/go/analysis/passes/modernize/cmd/modernize@v0.52.0
 Run the checks:
 
 ```powershell
+pwsh -NoProfile -File .\.github\scripts\test-release-version.ps1
 modernize ./...
 fieldalignment ./...
 go test ./...
@@ -259,6 +260,9 @@ Keep the `release` environment restricted to the `main` branch so workflows runn
 cannot access signing credentials. Main's required pull request checks are the release gate; the release workflow
 does not rerun tests. Conventional commits determine the next version: breaking changes increase the major version,
 features increase the minor version, and other changes increase the patch version.
+Version calculation uses the repository's PowerShell script, not a third-party action. It selects the highest
+reachable stable `vMAJOR.MINOR.PATCH` tag, ignores prerelease and noncanonical tags, and reuses a tag already on the
+current commit. A repository without a stable tag starts at `v0.1.0`. Complete Git history is required.
 
 Versioning and build/sign jobs have only `contents: read`, and checkouts never retain Git credentials. A separate
 publication job receives signed binaries by immutable artifact ID; it alone has repository-write, OIDC, and attestation

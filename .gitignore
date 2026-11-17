@@ -1,0 +1,8 @@
+/gh-mint
+/gh-mint.exe
+/dist/
+/coverage.out
+*.pem
+*.key
+.env
+.env.*

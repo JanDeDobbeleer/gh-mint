@@ -23,21 +23,16 @@ Read [Security](SECURITY.md) before trusting it with a GitHub App private key.
 Only GitHub.com is supported. GitHub Enterprise support is intentionally absent rather than forwarding credentials
 to a host inferred from an untrusted remote.
 
-## Install locally
+## Install
 
-From this repository:
+Install the precompiled extension with GitHub CLI:
 
 ```powershell
-go build -trimpath -o gh-mint.exe .
-gh extension install .
+gh extension install JanDeDobbeleer/gh-mint
 gh mint setup --help
 ```
 
-On macOS or Linux, build with `go build -trimpath -o gh-mint .`.
-Go is required to build from source, not to run a released binary.
-
-The repository is prepared for precompiled extension releases. After the first release, install with
-`gh extension install JanDeDobbeleer/gh-mint`.
+Go is not required to install or run the released binary.
 
 ## Configure a GitHub App
 

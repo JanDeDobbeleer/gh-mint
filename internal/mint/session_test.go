@@ -83,10 +83,12 @@ func TestSessionLaunchesAnIsolatedChildAndRevokesItsToken(t *testing.T) {
 	tests := []struct {
 		name     string
 		prompt   string
+		args     []string
 		exitCode int
 		startErr bool
 	}{
-		{name: "normal exit", prompt: "explain this repository"},
+		{name: "normal exit", args: []string{"-p", "explain this repository", "-s", "--model=example", "--resume", "--", "a b", ""}},
+		{name: "unrestricted arguments", args: []string{"--no-sandbox", "--secret-env-vars=OTHER", "-C", "other"}},
 		{name: "child failure", prompt: "exit-seven", exitCode: 7},
 		{name: "failed launch", startErr: true},
 	}
@@ -110,12 +112,16 @@ func TestSessionLaunchesAnIsolatedChildAndRevokesItsToken(t *testing.T) {
 			if tt.startErr {
 				execute = func(*exec.Cmd) error { return errors.New("process start failed") }
 			}
+			args := tt.args
+			if tt.prompt != "" {
+				args = []string{"--prompt=" + tt.prompt}
+			}
 			s := session{
 				github:  &githubClient{base: server.URL, http: server.Client()},
 				execute: execute, stdout: &stdout, stderr: &stderr, stdin: strings.NewReader(""),
 				cfg: config{Copilot: binary}, repo: repository{Root: root, Owner: "owner", Name: "project"},
 				configDir: configDir, copilotCredential: "copilot-account-secret",
-				args: []string{"--prompt=" + tt.prompt}, denied: []string{keyDir, configDir},
+				args: args, denied: []string{keyDir, configDir},
 				environ: []string{
 					"GH_TOKEN=broad-user-secret", "github_token=other-secret", "GH_APP_PRIVATE_KEY=private-key",
 					"GH_APP_PRIVATE_KEY_FILE=key.pem", "AWS_SECRET_ACCESS_KEY=cloud-secret",
@@ -154,6 +160,7 @@ func TestSessionLaunchesAnIsolatedChildAndRevokesItsToken(t *testing.T) {
 			assert.Contains(t, child.Args, "--sandbox")
 			assert.Contains(t, child.Args, "--disable-builtin-mcps")
 			assert.Contains(t, child.Args, "--secret-env-vars=COPILOT_GITHUB_TOKEN")
+			assert.Equal(t, append([]string{"--sandbox", "--disable-builtin-mcps", "--secret-env-vars=COPILOT_GITHUB_TOKEN"}, args...), child.Args)
 			sandbox := child.Settings["sandbox"].(map[string]any)
 			assert.Equal(t, true, sandbox["enabled"])
 			assert.Equal(t, false, sandbox["allowBypass"])
@@ -172,36 +179,6 @@ func TestSessionLaunchesAnIsolatedChildAndRevokesItsToken(t *testing.T) {
 			assert.NotContains(t, fmt.Sprint(child.Settings), "repository-test-token")
 			assert.NoDirExists(t, child.Env["GH_CONFIG_DIR"])
 			assert.NoDirExists(t, child.Env["COPILOT_HOME"])
-		})
-	}
-}
-
-func TestOnlySafeCopilotArgumentsAreForwarded(t *testing.T) {
-	tests := []struct {
-		name string
-		err  string
-		args []string
-		want []string
-	}{
-		{name: "interactive"},
-		{name: "prompt stays one argument", args: []string{"-p", "--no-sandbox", "--model=example", "-s"},
-			want: []string{"--prompt=--no-sandbox", "--model=example", "--silent"}},
-		{name: "disable sandbox", args: []string{"--no-sandbox"}, err: "not permitted"},
-		{name: "directory change", args: []string{"-C", "other"}, err: "not permitted"},
-		{name: "resume", args: []string{"--resume=elsewhere"}, err: "not permitted"},
-		{name: "extra MCP credentials", args: []string{"--additional-mcp-config={}"}, err: "not permitted"},
-		{name: "override secret filter", args: []string{"--secret-env-vars=OTHER"}, err: "not permitted"},
-		{name: "missing model", args: []string{"--model"}, err: "requires a value"},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got, err := copilotArgs(tt.args)
-			if tt.err != "" {
-				require.ErrorContains(t, err, tt.err)
-				return
-			}
-			require.NoError(t, err)
-			assert.Equal(t, tt.want, got)
 		})
 	}
 }

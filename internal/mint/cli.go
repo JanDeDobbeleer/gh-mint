@@ -16,8 +16,7 @@ const help = `Mint a single-repository GitHub App token and launch sandboxed Cop
 
 Usage:
   gh mint setup --app-id ID --key-file PATH [options]
-  gh mint [copilot] [--] [--model MODEL] [--prompt TEXT] [--silent]
-  gh mint --version
+  gh mint [COPILOT ARGUMENTS...]
 
 Setup options:
   --app-id ID          GitHub App numeric ID
@@ -54,27 +53,9 @@ This requests Copilot's local command sandbox, not an isolated Copilot host.
 Protecting against an unsandboxed host requires a separate-identity broker.
 `
 
-func Run(ctx context.Context, args []string, version string, stdin io.Reader, stdout, stderr io.Writer) error {
-	if len(args) > 0 {
-		switch args[0] {
-		case "--help", "-h", "help":
-			_, err := io.WriteString(stdout, help)
-			return err
-		case "--version":
-			_, err := fmt.Fprintln(stdout, "gh-mint", version)
-			return err
-		case "setup":
-			return setup(args[1:], stdout, stderr)
-		case "copilot":
-			args = args[1:]
-		}
-	}
-	if len(args) > 0 && args[0] == "--" {
-		args = args[1:]
-	}
-	args, err := copilotArgs(args)
-	if err != nil {
-		return err
+func Run(ctx context.Context, args []string, _ string, stdin io.Reader, stdout, stderr io.Writer) error {
+	if len(args) > 0 && args[0] == "setup" {
+		return setup(args[1:], stdout, stderr)
 	}
 	dir, err := configDirectory()
 	if err != nil {

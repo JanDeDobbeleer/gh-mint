@@ -58,21 +58,19 @@ func TestPrivateKeyCannotOverlapWorkingTree(t *testing.T) {
 			base, err := canonicalPath(t.TempDir())
 			require.NoError(t, err)
 			root := filepath.Join(base, "repo")
-			dir := filepath.Join(base, "config")
 			keyDir := filepath.Join(base, tt.location)
-			for _, path := range []string{root, dir, keyDir} {
+			for _, path := range []string{root, keyDir} {
 				require.NoError(t, os.MkdirAll(path, 0o700))
 			}
 			key := filepath.Join(keyDir, "key.pem")
 			require.NoError(t, os.WriteFile(key, nil, 0o600))
-			denied, err := protectPaths(repository{Root: root}, dir, config{KeyFile: key, Copilot: filepath.Join(base, "bin", "copilot")})
+			directory, err := privateKeyDirectory(repository{Root: root}, config{KeyFile: key})
 			if tt.err != "" {
 				require.ErrorContains(t, err, tt.err)
 				return
 			}
 			require.NoError(t, err)
-			assert.Contains(t, denied, keyDir)
-			assert.Contains(t, denied, dir)
+			assert.Equal(t, keyDir, directory)
 		})
 	}
 }

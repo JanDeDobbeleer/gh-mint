@@ -8,19 +8,22 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"time"
 )
 
-const help = `Mint a single-repository GitHub App token and launch sandboxed Copilot.
+const help = `Mint a single-repository GitHub App token and launch Copilot.
 
 Usage:
   gh mint setup --app-id ID --key-file PATH [options]
+  gh mint setup --encrypt-key
   gh mint [COPILOT ARGUMENTS...]
 
 Setup options:
   --app-id ID          GitHub App numeric ID
-  --key-file PATH      Unencrypted RSA PEM outside your Git working trees
+  --key-file PATH      RSA PEM to encrypt and import into mint's key directory
+  --encrypt-key        Encrypt the key from an existing mint configuration
   --remote NAME       Git remote to scope against (default: origin)
   --copilot PATH      Trusted Copilot executable (default: resolved from PATH)
 
@@ -49,13 +52,23 @@ Only github.com is supported. A GitHub App installation and separate Copilot
 authentication are required. No token is printed or stored. Tokens expire after
 one hour and are revoked on normal exit; there is no automatic renewal.
 
-This requests Copilot's local command sandbox, not an isolated Copilot host.
-Protecting against an unsandboxed host requires a separate-identity broker.
+Setup asks for a passphrase twice, verifies the saved encrypted key, and offers
+to delete the original only after configuration succeeds. Launches ask for the
+passphrase in a hidden terminal prompt; no decrypted PEM is written to disk.
+
+Copilot uses your normal home, settings, and environment. Mint requests sandboxing,
+asks Copilot to exclude COPILOT_GITHUB_TOKEN and GITHUB_TOKEN from shell and MCP
+environments, and disables built-in MCP servers. Other arguments are forwarded unchanged.
+Configure sandbox credential masking for GH_TOKEN in your Copilot settings.
+This scopes the minted token, not filesystem access or other available credentials.
+Built-in file tools are denied access to the App key directory; shell commands
+and other processes running as your account can still read it.
 `
 
 func Run(ctx context.Context, args []string, _ string, stdin io.Reader, stdout, stderr io.Writer) error {
+	prompts := terminalPrompter{stdin: stdin, stderr: stderr}
 	if len(args) > 0 && args[0] == "setup" {
-		return setup(args[1:], stdout, stderr)
+		return setup(args[1:], stdout, stderr, prompts)
 	}
 	dir, err := configDirectory()
 	if err != nil {
@@ -69,24 +82,15 @@ func Run(ctx context.Context, args []string, _ string, stdin io.Reader, stdout, 
 	if err != nil {
 		return err
 	}
-	if _, err := projectConfiguration(repo.Root); err != nil {
-		return err
-	}
-	denied, err := protectPaths(repo, dir, cfg)
+	keyDirectory, err := privateKeyDirectory(repo, cfg)
 	if err != nil {
-		return err
-	}
-	if within(repo.Root, cfg.Copilot) {
-		return errors.New("copilot executable must be outside the working tree")
-	}
-	if err := checkCopilot(ctx, cfg.Copilot); err != nil {
 		return err
 	}
 	credential, err := copilotCredential(ctx)
 	if err != nil {
 		return err
 	}
-	key, err := readKey(cfg.KeyFile)
+	key, err := readKey(cfg.KeyFile, prompts.password)
 	if err != nil {
 		return err
 	}
@@ -104,27 +108,43 @@ func Run(ctx context.Context, args []string, _ string, stdin io.Reader, stdout, 
 		stderr:            stderr,
 		cfg:               cfg,
 		repo:              repo,
-		configDir:         dir,
+		keyDirectory:      keyDirectory,
 		copilotCredential: credential,
 		args:              args,
-		denied:            denied,
 		environ:           os.Environ(),
 	}).runWithToken(ctx, token)
 }
 
-func setup(args []string, stdout, stderr io.Writer) error {
+func setup(args []string, stdout, stderr io.Writer, prompts keyPrompter) error {
 	flags := flag.NewFlagSet("gh mint setup", flag.ContinueOnError)
 	flags.SetOutput(stderr)
 	appID := flags.String("app-id", "", "GitHub App numeric ID")
 	keyFile := flags.String("key-file", "", "path to an RSA PEM file")
 	remote := flags.String("remote", "origin", "Git remote")
 	copilot := flags.String("copilot", "", "trusted Copilot executable")
+	encryptKey := flags.Bool("encrypt-key", false, "encrypt the key in an existing configuration")
 	flags.Usage = func() { _, _ = fmt.Fprint(stderr, help) }
 	if err := flags.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			return nil
 		}
 		return errors.New("invalid setup arguments; run 'gh mint setup --help'")
+	}
+	if *encryptKey {
+		otherFlags := false
+		flags.Visit(func(f *flag.Flag) { otherFlags = otherFlags || f.Name != "encrypt-key" })
+		if flags.NArg() != 0 || otherFlags {
+			return errors.New("use 'gh mint setup --encrypt-key' without other setup options")
+		}
+		dir, err := configDirectory()
+		if err != nil {
+			return err
+		}
+		cfg, err := readConfig(dir)
+		if err != nil {
+			return err
+		}
+		return encryptSetupKey(dir, cfg, prompts, stdout, true)
 	}
 	if flags.NArg() != 0 || *keyFile == "" {
 		return errors.New("--app-id and --key-file are required; run 'gh mint setup --help'")
@@ -135,9 +155,6 @@ func setup(args []string, stdout, stderr io.Writer) error {
 	}
 	key, err := canonicalPath(*keyFile)
 	if err != nil {
-		return err
-	}
-	if _, err := readKey(key); err != nil {
 		return err
 	}
 	if *copilot == "" {
@@ -155,11 +172,13 @@ func setup(args []string, stdout, stderr io.Writer) error {
 		return err
 	}
 	cfg := config{AppID: id, KeyFile: key, Copilot: binary, Remote: *remote}
-	if err := writeConfig(dir, cfg); err != nil {
+	if err := cfg.validate(); err != nil {
 		return err
 	}
-	_, err = fmt.Fprintln(stdout, "Configured gh-mint. Protect the private key directory with your OS permissions, then run 'gh mint' inside a Git repository.")
-	return err
+	if _, err := os.Lstat(filepath.Join(dir, "config.json")); !errors.Is(err, os.ErrNotExist) {
+		return errors.New("existing configuration is never overwritten by setup; use 'gh mint setup --encrypt-key' to encrypt its key")
+	}
+	return encryptSetupKey(dir, cfg, prompts, stdout, false)
 }
 
 func copilotCredential(ctx context.Context) (string, error) {

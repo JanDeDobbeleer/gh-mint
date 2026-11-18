@@ -46,14 +46,14 @@ func TestReadPrivateKey(t *testing.T) {
 		{name: "PKCS8", data: pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: pkcs8})},
 		{name: "non RSA", data: pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: ecData}), err: "must be RSA"},
 		{name: "invalid PEM", data: []byte("not-a-key"), err: "exactly one"},
-		{name: "encrypted", data: pem.EncodeToMemory(&pem.Block{Type: "ENCRYPTED PRIVATE KEY", Bytes: []byte("encrypted")}), err: "unencrypted"},
+		{name: "encrypted without prompt", data: pem.EncodeToMemory(&pem.Block{Type: "ENCRYPTED PRIVATE KEY", Bytes: []byte("encrypted")}), err: "interactive passphrase prompt"},
 		{name: "trailing data", data: append(pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: pkcs8}), []byte("another-secret")...), err: "exactly one"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			path := filepath.Join(t.TempDir(), "key.pem")
 			require.NoError(t, os.WriteFile(path, tt.data, 0o600))
-			got, err := readKey(path)
+			got, err := readKey(path, nil)
 			if tt.err != "" {
 				require.ErrorContains(t, err, tt.err)
 				assert.NotContains(t, err.Error(), "another-secret")
@@ -100,9 +100,13 @@ func TestConfigurationPersistence(t *testing.T) {
 			if tt.legacy {
 				data, marshalErr := json.Marshal(struct {
 					Permissions map[string]string `json:"permissions"`
+					Settings    map[string]any    `json:"settings"`
+					Sandbox     map[string]any    `json:"sandbox"`
 					config
 				}{
 					config: cfg, Permissions: map[string]string{"contents": "read", "issues": "read", "pull_requests": "read"},
+					Settings: map[string]any{"allow": []string{"sandbox"}},
+					Sandbox:  map[string]any{"env": []string{"GH_TOKEN"}, "readonly_paths": []string{"relative"}},
 				})
 				require.NoError(t, marshalErr)
 				require.NoError(t, os.WriteFile(filepath.Join(dir, "config.json"), data, 0o600))

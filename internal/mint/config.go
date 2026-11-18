@@ -1,10 +1,7 @@
 package mint
 
 import (
-	"crypto/rsa"
-	"crypto/x509"
 	"encoding/json"
-	"encoding/pem"
 	"errors"
 	"fmt"
 	"os"
@@ -77,51 +74,16 @@ func writeConfig(dir string, cfg config) error {
 		_ = os.Remove(path)
 		return errors.New("cannot write configuration")
 	}
+	if err := file.Sync(); err != nil {
+		_ = file.Close()
+		_ = os.Remove(path)
+		return errors.New("cannot persist configuration")
+	}
 	if err := file.Close(); err != nil {
 		_ = os.Remove(path)
 		return errors.New("cannot finish writing configuration")
 	}
 	return nil
-}
-
-func readKey(path string) (*rsa.PrivateKey, error) {
-	info, err := os.Stat(path)
-	if err != nil || !info.Mode().IsRegular() || info.Size() > 64*1024 {
-		return nil, errors.New("private key must be a readable regular PEM file smaller than 64 KiB")
-	}
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return nil, errors.New("cannot read the private key")
-	}
-	block, rest := pem.Decode(data)
-	if block == nil || len(strings.TrimSpace(string(rest))) != 0 {
-		return nil, errors.New("private key must contain exactly one unencrypted RSA PEM block")
-	}
-
-	var key *rsa.PrivateKey
-	switch block.Type {
-	case "RSA PRIVATE KEY":
-		key, err = x509.ParsePKCS1PrivateKey(block.Bytes)
-	case "PRIVATE KEY":
-		var parsed any
-		parsed, err = x509.ParsePKCS8PrivateKey(block.Bytes)
-		if err == nil {
-			var ok bool
-			key, ok = parsed.(*rsa.PrivateKey)
-			if !ok {
-				return nil, errors.New("private key must be RSA")
-			}
-		}
-	default:
-		return nil, errors.New("private key must be an unencrypted PKCS#1 or PKCS#8 RSA PEM file")
-	}
-	if err != nil || key == nil {
-		return nil, errors.New("cannot parse the RSA private key")
-	}
-	if key.N.BitLen() < 2048 {
-		return nil, errors.New("RSA private key must be at least 2048 bits")
-	}
-	return key, nil
 }
 
 func canonicalPath(path string) (string, error) {

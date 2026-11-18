@@ -43,7 +43,7 @@ func TestRepositoryIdentity(t *testing.T) {
 	}
 }
 
-func TestPrivateKeyCannotOverlapWorkingTree(t *testing.T) {
+func TestProtectedPathsCannotOverlapWorkingTree(t *testing.T) {
 	tests := []struct {
 		name     string
 		location string
@@ -59,18 +59,24 @@ func TestPrivateKeyCannotOverlapWorkingTree(t *testing.T) {
 			require.NoError(t, err)
 			root := filepath.Join(base, "repo")
 			keyDir := filepath.Join(base, tt.location)
-			for _, path := range []string{root, keyDir} {
+			configDir := filepath.Join(base, "config")
+			for _, path := range []string{root, keyDir, configDir} {
 				require.NoError(t, os.MkdirAll(path, 0o700))
 			}
+			t.Setenv("APPDATA", filepath.Join(base, "appdata"))
+			t.Setenv("XDG_CONFIG_HOME", filepath.Join(base, "xdg"))
+			t.Setenv("COPILOT_HOME", filepath.Join(base, "copilot"))
+			t.Setenv("GH_CONFIG_DIR", filepath.Join(base, "gh"))
 			key := filepath.Join(keyDir, "key.pem")
 			require.NoError(t, os.WriteFile(key, nil, 0o600))
-			directory, err := privateKeyDirectory(repository{Root: root}, config{KeyFile: key})
+			denied, err := protectPaths(repository{Root: root}, configDir, config{KeyFile: key})
 			if tt.err != "" {
 				require.ErrorContains(t, err, tt.err)
 				return
 			}
 			require.NoError(t, err)
-			assert.Equal(t, keyDir, directory)
+			assert.Contains(t, denied, keyDir)
+			assert.Contains(t, denied, configDir)
 		})
 	}
 }

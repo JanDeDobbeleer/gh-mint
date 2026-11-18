@@ -25,21 +25,31 @@ Do not invoke setup from an untrusted checkout or accept an untrusted Copilot ex
 
 ## Limits
 
-- Mint is a token wrapper, not an isolation boundary. It requests Copilot's sandbox, asks Copilot to exclude
-  `COPILOT_GITHUB_TOKEN` and `GITHUB_TOKEN` from shell and MCP environments, and disables built-in MCP servers.
-  Copilot otherwise uses your normal home, settings, environment, hooks, plugins, extensions, and custom MCP servers.
-  Configure sandbox credential masking as described in the README; mint does not enforce that policy.
-- Mint adds built-in file-tool read/write deny rules for the App key directory and its descendants. Shell commands,
-  hooks, MCP servers, and other processes running as your OS user can still read the PEM. Encrypted PEMs require
-  their passphrase, but access to an unencrypted/decrypted key can allow minting tokens for other repositories
-  installed on the App. These guardrails do not isolate the signing key.
-- Use a strong, unique passphrase. Encryption protects the stored key, not against keylogging, memory inspection,
-  or a compromised same-user process while it is unlocked. Legacy unencrypted keys remain supported and must be
-  migrated explicitly with `gh mint setup --encrypt-key`. Retained source copies, backups, synced files, and
-  recoverable deleted data can still expose the unencrypted key. Ordinary deletion is not secure erasure.
-- The child receives the real scoped `GH_TOKEN` and a separate `COPILOT_GITHUB_TOKEN`. Other inherited credentials
-  and normal Git credential helpers remain available. The issued token is scoped; not all operations necessarily
-  use it. Copilot settings and forwarded arguments control secret filtering and any sandbox credential masking.
+- The Copilot host process runs outside its local OS command sandbox. Built-in file tools enforce file policy on a
+  best-effort basis. A private key on the same host is not cryptographically inaccessible to Copilot.
+- This does not isolate against other processes running as your OS user, administrators, a compromised Copilot
+  binary, or a compromised GitHub CLI binary.
+- User-editable sandbox settings are not managed enforcement. This extension requests a sandbox policy, but passes
+  Copilot arguments unchanged. Arguments can disable or weaken sandboxing, secret filtering, and other protections.
+  Settings can also change during a session. Mandatory sandboxing requires an administrator-controlled Copilot
+  managed policy.
+- Project configuration is checked at startup. A concurrently modified checkout or settings changed during a
+  session are outside that check. The minted token remains scoped, but alternate credentials must remain absent.
+- Local sandbox proxy and network controls on Windows rely on applications honoring proxy settings. They do not
+  provide a complete egress boundary.
+- A scoped credential does not prohibit public unauthenticated reads, or all account/installation metadata
+  endpoints. It limits the repository authority GitHub grants to that token.
+- Secrets already present in the checkout, unrecognized credential files outside it, copied keys, system credential
+  helpers, and privileged policy hooks require separate review. The common-path denial list is not exhaustive.
+- The separate Copilot credential exists in the unsandboxed host's environment. By default, secret filtering covers
+  shell and MCP environments; optional extensions, plugins, and project language servers are disabled or rejected.
+  Forwarded arguments can change these protections.
+- The private key is stored with passphrase encryption, but encryption does not protect it from keylogging, memory
+  inspection, or a compromised same-user process while unlocked. Legacy unencrypted keys remain supported and must
+  be migrated explicitly with `gh mint setup --encrypt-key`. Retained source copies, backups, synced files, and
+  recoverable deleted data can still expose unencrypted key material; ordinary deletion is not secure erasure.
+- The child receives the scoped `GH_TOKEN` and separate `COPILOT_GITHUB_TOKEN`. The environment allowlist drops
+  inherited GitHub tokens and other unapproved variables, but forwarded arguments can change Copilot's filtering.
 - File modes are not a substitute for NTFS ACLs on Windows. The App key is read from your chosen file, not moved into
   an OS keyring. Protect both the key and launcher configuration against modification.
 - The launcher attempts to revoke the token on normal exit, child failure, and handled interruption. A hard kill,

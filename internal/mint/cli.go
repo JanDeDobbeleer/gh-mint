@@ -13,7 +13,7 @@ import (
 	"time"
 )
 
-const help = `Mint a single-repository GitHub App token and launch Copilot.
+const help = `Mint a single-repository GitHub App token and launch sandboxed Copilot.
 
 Usage:
   gh mint setup --app-id ID --key-file PATH [options]
@@ -56,13 +56,17 @@ Setup asks for a passphrase twice, verifies the saved encrypted key, and offers
 to delete the original only after configuration succeeds. Launches ask for the
 passphrase in a hidden terminal prompt; no decrypted PEM is written to disk.
 
-Copilot uses your normal home, settings, and environment. Mint requests sandboxing,
-asks Copilot to exclude COPILOT_GITHUB_TOKEN and GITHUB_TOKEN from shell and MCP
-environments, and disables built-in MCP servers. Other arguments are forwarded unchanged.
-Configure sandbox credential masking for GH_TOKEN in your Copilot settings.
-This scopes the minted token, not filesystem access or other available credentials.
-Built-in file tools are denied access to the App key directory; shell commands
-and other processes running as your account can still read it.
+Each launch uses a temporary Copilot home and GitHub CLI configuration, requests
+the local sandbox, and masks COPILOT_GITHUB_TOKEN from shell and MCP environments.
+The environment allowlist drops inherited GitHub tokens and other unapproved variables.
+Mint disables hooks, extensions, built-in MCP servers, and discovered project MCP servers.
+Project settings that weaken this policy and active project language servers are rejected.
+The key directory, mint configuration, and common credential paths are denied to
+sandboxed tools on a best-effort basis.
+
+All Copilot arguments are forwarded unchanged and can weaken these protections.
+The Copilot host process runs outside its local command sandbox. Mint scopes the
+token it issues; it is not an isolation boundary.
 `
 
 func Run(ctx context.Context, args []string, _ string, stdin io.Reader, stdout, stderr io.Writer) error {
@@ -82,8 +86,17 @@ func Run(ctx context.Context, args []string, _ string, stdin io.Reader, stdout, 
 	if err != nil {
 		return err
 	}
-	keyDirectory, err := privateKeyDirectory(repo, cfg)
+	if _, err := projectConfiguration(repo.Root); err != nil {
+		return err
+	}
+	denied, err := protectPaths(repo, dir, cfg)
 	if err != nil {
+		return err
+	}
+	if within(repo.Root, cfg.Copilot) {
+		return errors.New("copilot executable must be outside the working tree")
+	}
+	if err := checkCopilot(ctx, cfg.Copilot); err != nil {
 		return err
 	}
 	credential, err := copilotCredential(ctx)
@@ -108,9 +121,10 @@ func Run(ctx context.Context, args []string, _ string, stdin io.Reader, stdout, 
 		stderr:            stderr,
 		cfg:               cfg,
 		repo:              repo,
-		keyDirectory:      keyDirectory,
+		configDir:         dir,
 		copilotCredential: credential,
 		args:              args,
+		denied:            denied,
 		environ:           os.Environ(),
 	}).runWithToken(ctx, token)
 }

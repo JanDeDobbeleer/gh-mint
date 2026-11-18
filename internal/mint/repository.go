@@ -96,20 +96,68 @@ func gitEnvironment(environ []string) []string {
 	return append(env, "GIT_TERMINAL_PROMPT=0")
 }
 
-func privateKeyDirectory(repo repository, cfg config) (string, error) {
+func protectPaths(repo repository, dir string, cfg config) ([]string, error) {
 	key, err := canonicalPath(cfg.KeyFile)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 	if key != cfg.KeyFile {
-		return "", errors.New("private key path changed; update the configuration with its canonical path")
+		return nil, errors.New("private key path changed; update the configuration with its canonical path")
 	}
 	keyDirectory := filepath.Dir(key)
 	if within(keyDirectory, repo.Root) || within(repo.Root, keyDirectory) {
-		return "", errors.New("private key directory must be outside and not contain the working tree")
+		return nil, errors.New("private key directory must be outside and not contain the working tree")
 	}
-	if strings.ContainsAny(keyDirectory, "*?[]") {
-		return "", errors.New("private key directory cannot contain glob metacharacters")
+	configDir, err := canonicalPath(dir)
+	if err != nil {
+		return nil, err
 	}
-	return keyDirectory, nil
+	if within(configDir, repo.Root) || within(repo.Root, configDir) {
+		return nil, errors.New("gh-mint configuration directory must be outside and not contain the working tree")
+	}
+	if strings.ContainsAny(keyDirectory+configDir, "*?[]") {
+		return nil, errors.New("private key and configuration directories cannot contain glob metacharacters")
+	}
+	if within(keyDirectory, cfg.Copilot) {
+		return nil, errors.New("copilot executable must be outside the private key directory")
+	}
+
+	denied := []string{keyDirectory, configDir}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return nil, errors.New("cannot resolve the user home directory")
+	}
+	for _, name := range []string{".ssh", ".aws", ".azure", ".gnupg", ".kube", ".gitconfig", ".git-credentials", ".netrc", "_netrc", ".npmrc", ".pypirc"} {
+		denied = append(denied, filepath.Join(home, name))
+	}
+	copilotHome := os.Getenv("COPILOT_HOME")
+	if copilotHome == "" {
+		copilotHome = filepath.Join(home, ".copilot")
+	}
+	if !filepath.IsAbs(copilotHome) {
+		return nil, errors.New("inherited COPILOT_HOME must be absolute")
+	}
+	denied = append(denied, copilotHome, filepath.Join(home, ".copilot"), filepath.Join(home, ".claude"))
+
+	base := os.Getenv("XDG_CONFIG_HOME")
+	if base == "" {
+		base = filepath.Join(home, ".config")
+	}
+	defaultGHHome := filepath.Join(base, "gh")
+	if os.PathSeparator == '\\' {
+		base = os.Getenv("APPDATA")
+		if base == "" {
+			return nil, errors.New("cannot locate GitHub CLI credentials")
+		}
+		defaultGHHome = filepath.Join(base, "GitHub CLI")
+	}
+	ghHome := os.Getenv("GH_CONFIG_DIR")
+	if ghHome == "" {
+		ghHome = defaultGHHome
+	}
+	if !filepath.IsAbs(ghHome) {
+		return nil, errors.New("inherited GH_CONFIG_DIR must be absolute")
+	}
+	denied = append(denied, ghHome, defaultGHHome)
+	return denied, nil
 }

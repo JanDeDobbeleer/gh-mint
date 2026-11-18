@@ -16,7 +16,7 @@ Read [Security](SECURITY.md) before trusting it with a GitHub App private key.
 ## Requirements
 
 - GitHub CLI and Git.
-- GitHub Copilot CLI.
+- GitHub Copilot CLI 1.0.112 or later, with a supported local sandbox host.
 - A GitHub App installed on the repositories you intend to use.
 - A separate credential authorized to use Copilot.
 
@@ -51,7 +51,8 @@ Go is not required to install or run the released binary.
    commit the key or share its contents.
 6. Restrict that directory with your operating system's access controls. On Windows, Go's `0600` file mode does not
    replace NTFS ACLs. Setup imports the key into mint's key directory with passphrase encryption and offers to
-   delete the original after verification. Remove any other unencrypted copies yourself.
+   delete the original after verification. The entire directory is denied to sandboxed commands, so keep unrelated
+   files and executables elsewhere. Remove any other unencrypted copies yourself.
 7. Select Install App, choose the target account, then Only select repositories. Select the repositories where you
    will use the launcher. Each session still receives access to just the repository it starts in.
 
@@ -119,8 +120,8 @@ Optional setup flags:
 Configuration contains the App ID, canonical encrypted-key and executable paths, and remote name.
 It contains no token, passphrase, or private key material.
 
-Legacy `settings` and `sandbox` fields in mint's configuration are ignored. Configure Copilot directly through
-your normal Copilot settings or forwarded command-line arguments.
+Legacy `settings` and `sandbox` fields in mint's configuration are ignored. Each launch creates a temporary Copilot
+home with launcher-managed sandbox settings; it does not load or modify your normal Copilot settings.
 
 Configuration is stored in the OS user configuration directory:
 
@@ -138,18 +139,19 @@ The installation token cannot authenticate to Copilot itself.
 for Copilot authentication. That credential must support Copilot requests. An explicit Copilot credential is needed
 because the repository-scoped App token cannot authenticate to Copilot and takes precedence over saved login credentials.
 
-Copilot inherits your environment, with these overrides:
+Mint launches Copilot with a fresh temporary home and GitHub CLI configuration. Its child environment uses a small
+allowlist; inherited GitHub tokens, provider overrides, runtime injection variables, and arbitrary environment
+variables are not forwarded. Copilot receives:
 
 - `COPILOT_GITHUB_TOKEN`: the separate Copilot credential.
 - `GH_TOKEN`: the one-repository installation token.
 - `GH_REPO` and `GH_HOST`: the pinned repository and `github.com`.
-
-Your normal Copilot home and settings are used, including an inherited `COPILOT_HOME`. Mint does not create or modify
-Copilot settings, filter other environment variables, or change Git/GitHub CLI configuration.
+- Fresh `COPILOT_HOME`, `GH_CONFIG_DIR`, and global Git configuration, removed on exit.
 
 The launcher uses your account credential for Copilot authentication, never to mint the installation token.
-Other tools, MCP servers, hooks, and Git credential helpers can use whatever credentials your normal configuration
-makes available. Mint scopes the token it issues, not every possible authenticated operation in the session.
+It filters the Copilot credential from shell and MCP environments, disables hooks, extensions, and built-in MCP
+servers, and disables discovered project MCP servers. Project settings that could weaken this policy are rejected.
+Active project language servers are not supported because their credential filtering is not guaranteed.
 
 ## Launch
 
@@ -165,18 +167,18 @@ Except for the `setup` command, all arguments after `gh mint` are passed to Copi
 `--version`, and `--`. They are passed without a shell. Copilot starts at the checkout root by default, including
 when you invoke the extension from a subdirectory. A non-default or ambiguous remote is never silently selected.
 
-Mint requests Copilot's sandbox, asks it to exclude `COPILOT_GITHUB_TOKEN` and `GITHUB_TOKEN` from shell and MCP
-environments, and disables built-in MCP servers. It also adds `--deny-tool=read(...)` and `--deny-tool=write(...)`
-rules for the configured App key directory and its descendants.
-These rules apply to built-in file tools, not shell commands, hooks, MCP servers, or other processes.
-Reading an encrypted PEM alone is insufficient to mint tokens without its passphrase, but unencrypted source copies
-you retain are not protected by these rules. Unencrypted keys from older configurations still work without a prompt;
-use `gh mint setup --encrypt-key` to migrate them.
-Access to a decrypted key can allow minting broader tokens, so these guardrails are not sufficient for an untrusted agent.
-Use a separate OS identity or signing broker if the key must be inaccessible.
+**Copilot arguments can weaken the launcher's sandbox and credential protections.** For example, options that disable
+sandboxing, change the working directory, enable extra configuration, or alter secret filtering may expose credentials.
+Only pass arguments you trust. Copilot handles argument validation.
 
-Add the following to your normal Copilot `settings.json` to use the scoped token for sandboxed `gh` commands
-instead of automatic account authentication:
+By default, the launcher requests Copilot's sandbox with `allowBypass` disabled, disables automatic Git and GitHub CLI
+account authentication, and configures the scoped token for sandboxed GitHub CLI requests to GitHub.com. It denies
+the key directory, mint configuration, common credential paths, and Copilot configuration directories. It also
+disables hooks, extensions, built-in MCP servers, and discovered project MCP servers. Project settings that could
+conflict with this policy are rejected.
+
+Mint writes sandbox settings that allow `gh` commands to use the scoped token instead of automatic account
+authentication. The relevant settings are:
 
 ```json
 {
@@ -194,10 +196,9 @@ instead of automatic account authentication:
 }
 ```
 
-Merge these fields with existing settings. Mint does not write or enforce this policy; project settings and other
-configuration can affect the effective sandbox. Hooks, plugins, extensions, custom MCP servers, Git credential
-helpers, and other accessible credentials remain separate authentication paths. Remote MCP servers are not sandboxed.
-These settings and flags do not make mint an isolation boundary.
+An unsupported sandbox host does not silently fall back for shell commands when sandboxing is requested.
+The Copilot host process itself runs outside its local command sandbox. File-tool policies are best-effort, and
+forwarded arguments can weaken or disable the launch protections. Mint is not an isolation boundary.
 
 ### Lifetime and cleanup
 
@@ -205,11 +206,11 @@ GitHub installation tokens expire after one hour. There is no transparent refres
 Changing directories, remotes, or the prompt does not expand the already-minted token's access.
 
 The launcher attempts to revoke the token on normal exit, child failure, and handled interruption. A hard kill or
-failed revocation leaves the token valid until its expiry. Session history and certificate state are managed by
-Copilot in your normal Copilot home. Old mint-specific Copilot homes are no longer used and are not deleted automatically.
+failed revocation leaves the token valid until its expiry. Temporary configurations and session data are removed
+on handled exit. The isolated session data is not retained for resume.
 
-Git operations do not automatically use `GH_TOKEN`; they use your existing Git configuration and credential helpers.
-GitHub CLI uses the scoped `GH_TOKEN` for GitHub.com.
+Git operations do not automatically use `GH_TOKEN`. Mint does not install a Git credential helper or enable personal
+SSH/Git credentials. Use GitHub CLI API operations within the scoped session.
 
 ### Optional PowerShell profile wrapper
 

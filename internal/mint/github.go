@@ -120,11 +120,15 @@ func (g *githubClient) request(ctx context.Context, method, path, token string, 
 	req.Header.Set("Authorization", "Bearer "+token)
 	req.Header.Set("Accept", "application/vnd.github+json")
 	req.Header.Set("X-GitHub-Api-Version", apiVersion)
-	req.Header.Set("User-Agent", "gh-mint")
+	req.Header.Set("User-Agent", "mint")
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
 	}
-	response, err := g.http.Do(req)
+	client := *g.http
+	client.CheckRedirect = func(_ *http.Request, _ []*http.Request) error {
+		return http.ErrUseLastResponse
+	}
+	response, err := client.Do(req)
 	if err != nil {
 		return errors.New("GitHub API request failed; check connectivity and TLS configuration")
 	}

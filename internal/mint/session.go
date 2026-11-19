@@ -35,7 +35,7 @@ func (s session) runWithToken(ctx context.Context, token installationToken) erro
 		revokeCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 		if err := s.github.revoke(revokeCtx, token.Token); err != nil {
-			_, _ = fmt.Fprintln(s.stderr, "gh mint: could not revoke the installation token; it will expire automatically")
+			_, _ = fmt.Fprintln(s.stderr, "mint: could not revoke the installation token; it will expire automatically")
 		}
 	}()
 
@@ -43,7 +43,7 @@ func (s session) runWithToken(ctx context.Context, token installationToken) erro
 	if err != nil {
 		return err
 	}
-	ghHome, err := os.MkdirTemp("", "gh-mint-gh-")
+	ghHome, err := os.MkdirTemp("", "mint-gh-")
 	if err != nil {
 		return errors.New("cannot create an isolated GitHub CLI configuration directory")
 	}
@@ -79,7 +79,7 @@ func (s session) runWithToken(ctx context.Context, token installationToken) erro
 	cmd.Stdin = s.stdin
 	cmd.Stdout = s.stdout
 	cmd.Stderr = s.stderr
-	if _, err := fmt.Fprintf(s.stderr, "gh mint: %s/%s; repository token expires at %s; sandbox requested\n",
+	if _, err := fmt.Fprintf(s.stderr, "mint: %s/%s; repository token expires at %s; sandbox requested\n",
 		s.repo.Owner, s.repo.Name, token.ExpiresAt.Local().Format(time.RFC3339)); err != nil {
 		return errors.New("cannot report launch status")
 	}
@@ -88,7 +88,7 @@ func (s session) runWithToken(ctx context.Context, token installationToken) erro
 
 func cleanupDirectory(path string, stderr io.Writer) {
 	if err := os.RemoveAll(path); err != nil {
-		_, _ = fmt.Fprintln(stderr, "gh mint: could not remove an isolated session directory")
+		_, _ = fmt.Fprintln(stderr, "mint: could not remove an isolated session directory")
 	}
 }
 
@@ -100,10 +100,10 @@ func checkLaunchArgs(args []string) error {
 		flag, _, _ := strings.Cut(arg, "=")
 		switch flag {
 		case "--no-sandbox", "--secret-env-vars":
-			return fmt.Errorf("%s would override Mint's sandbox protections", flag)
+			return fmt.Errorf("%s would override mint's sandbox protections", flag)
 		case "--sandbox":
 			if arg != flag && arg != "--sandbox=true" {
-				return errors.New("sandboxing is required by Mint")
+				return errors.New("sandboxing is required by mint")
 			}
 		}
 	}
@@ -136,18 +136,18 @@ func checkSandboxCredentials(ctx context.Context, binary, root string, environ [
 	}
 	if err != nil || json.Unmarshal(output, &policy) != nil ||
 		policy.Auth.Git == nil || *policy.Auth.Git || policy.Auth.GH == nil || *policy.Auth.GH {
-		return errors.New("saved Copilot settings must explicitly disable sandbox.auth.git and sandbox.auth.gh and configure scoped GH_TOKEN masking; run 'gh mint config'")
+		return errors.New("saved Copilot settings must explicitly disable sandbox.auth.git and sandbox.auth.gh and configure scoped GH_TOKEN masking; run 'mint config'")
 	}
 	if policy.AllowBypass == nil || *policy.AllowBypass {
-		return errors.New("sandbox.allowBypass must be false in saved Copilot settings; run 'gh mint config'")
+		return errors.New("sandbox.allowBypass must be false in saved Copilot settings; run 'mint config'")
 	}
 	if allow := policy.UserPolicy.Network.AllowLocalNetwork; os.PathSeparator == '\\' && allow != nil && !*allow {
-		return errors.New("sandbox.userPolicy.network.allowLocalNetwork must not be disabled on Windows; run 'gh mint config' to enable access to the credential proxy")
+		return errors.New("sandbox.userPolicy.network.allowLocalNetwork must not be disabled on Windows; run 'mint config' to enable access to the credential proxy")
 	}
 	hosts := policy.Credentials.EnvVars["GH_TOKEN"].InjectHosts
 	slices.Sort(hosts)
 	if !slices.Equal(slices.Compact(hosts), githubTokenHosts[:]) {
-		return errors.New("sandbox.credentials.envVars.GH_TOKEN.injectHosts must contain exactly github.com, api.github.com, and uploads.github.com; run 'gh mint config'")
+		return errors.New("sandbox.credentials.envVars.GH_TOKEN.injectHosts must contain exactly github.com, api.github.com, and uploads.github.com; run 'mint config'")
 	}
 	return nil
 }

@@ -1,9 +1,9 @@
 # Security
 
-Mint starts Copilot in its local sandbox and supplies a short-lived GitHub App installation token scoped to the current
+mint starts Copilot in its local sandbox and supplies a short-lived GitHub App installation token scoped to the current
 repository. The token inherits the App installation's permissions. Copilot authentication uses a separate credential.
 
-Setup stores the App key as an encrypted PKCS#8 PEM. Mint unlocks it in memory to request the token and attempts to
+Setup stores the App key as an encrypted PKCS#8 PEM. mint unlocks it in memory to request the token and attempts to
 revoke the token when the session ends.
 
 ## Reporting

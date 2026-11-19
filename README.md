@@ -1,12 +1,12 @@
-# gh-mint
+# mint
 
 Launch GitHub Copilot CLI in its local sandbox with a short-lived GitHub App token scoped to the current repository.
 
 ```powershell
-gh mint
+mint
 ```
 
-Sandboxed `gh` commands use the App token. Copilot keeps your existing home and settings, and Mint does not replace
+Sandboxed `gh` commands use the App token. Copilot keeps your existing home and settings, and mint does not replace
 your normal GitHub CLI login.
 
 ## Requirements
@@ -20,14 +20,17 @@ Only GitHub.com is supported.
 
 ## Install
 
-Install the precompiled extension with GitHub CLI:
+On Windows, install the signed MSIX package from the latest
+[GitHub release](https://github.com/JanDeDobbeleer/gh-mint/releases):
 
 ```powershell
-gh extension install JanDeDobbeleer/gh-mint
-gh mint setup --help
+Add-AppxPackage .\mint-windows-amd64.msix
+mint setup --help
 ```
 
-Go is not required to install or run the released binary.
+The package installs the `mint.exe` command alias. Choose the package matching your processor architecture.
+On macOS, Linux, and FreeBSD, download the matching standalone binary from the same release and place it on `PATH`.
+No GitHub CLI extension is installed.
 
 ## Configure a GitHub App
 
@@ -42,7 +45,7 @@ Go is not required to install or run the released binary.
 4. Choose Only on this account for installations on the owning account, or Any account if you also need installations
    on other accounts or organizations. Create the App and copy its numeric **App ID**, not its Client ID.
 5. In the App settings, open Credentials > Key pairs > New key. Move the downloaded RSA PEM into a dedicated directory
-   outside your Git checkouts, such as `C:\secure\gh-mint\app.pem`. Remove any leftover copy from Downloads. Never
+   outside your Git checkouts, such as `C:\secure\mint\app.pem`. Remove any leftover copy from Downloads. Never
    commit the key or share its contents.
 6. Restrict that directory with your operating system's access controls. On Windows, Go's `0600` file mode does not
    replace NTFS ACLs. Setup imports the key into mint's key directory with passphrase encryption and offers to
@@ -59,14 +62,14 @@ GitHub documents [App registration][app-registration], [private keys][app-keys],
 
 ### Configure the launcher
 
-Configure the extension once:
+Configure mint once:
 
 ```powershell
-gh mint setup --app-id 123456 --key-file "C:\secure\gh-mint\app.pem"
-gh mint config
+mint setup --app-id 123456 --key-file "C:\secure\mint\app.pem"
+mint config
 ```
 
-`gh mint config` applies the [credential policy](#copilot-authentication) to your normal Copilot home.
+`mint config` applies the [credential policy](#copilot-authentication) to your normal Copilot home.
 Initial setup never overwrites an existing configuration. Review and edit the existing configuration to change its values,
 or use the explicit key-encryption migration below.
 
@@ -78,7 +81,7 @@ Declining or interrupting this confirmation leaves the original in place. Existi
 To encrypt the key referenced by an existing mint configuration:
 
 ```powershell
-gh mint setup --encrypt-key
+mint setup --encrypt-key
 ```
 
 This preserves your App ID, remote, executable path, and other configuration fields, updating only `key_file`.
@@ -95,7 +98,7 @@ the controlling terminal instead. A terminal is required to unlock an encrypted 
 **The App installation is the source of truth.** Every token request omits `permissions`, so GitHub grants the
 token all permissions granted to that installation. There is no `--permissions` option or read-only default.
 To change session authority, change the App's permissions in GitHub and approve installation updates when required.
-Restart `gh mint` afterward to mint a new token with the updated grants.
+Restart `mint` afterward to mint a new token with the updated grants.
 
 Repository selection is independent of permission levels: even a write-enabled token remains restricted to the
 current repository. Operations made with this token act as the App, not your personal account.
@@ -112,10 +115,11 @@ Optional setup flags:
 Configuration contains the App ID, canonical encrypted-key and executable paths, and remote name.
 It contains no token, passphrase, or private key material.
 
-Legacy `settings` and `sandbox` fields in Mint's configuration are ignored. Mint uses your normal Copilot home
+Legacy `settings` and `sandbox` fields in mint's configuration are ignored. mint uses your normal Copilot home
 (`COPILOT_HOME` if set, otherwise Copilot's default). Normal launches do not edit its settings.
 
-Configuration is stored in the OS user configuration directory:
+Configuration stays in the existing OS user configuration directory so current installations keep using their
+encrypted key without migration:
 
 - Windows: `%APPDATA%\gh-mint\config.json`
 - Linux: `$XDG_CONFIG_HOME/gh-mint/config.json`, or `~/.config/gh-mint/config.json`
@@ -125,13 +129,13 @@ Setup pins the resolved executable path. If an upgrade moves the actual Copilot 
 
 ## Copilot authentication
 
-Mint uses `COPILOT_GITHUB_TOKEN` for Copilot itself, falling back to `gh auth token --hostname github.com`.
+mint uses `COPILOT_GITHUB_TOKEN` for Copilot itself, falling back to `gh auth token --hostname github.com`.
 Sandboxed `gh` commands use the separate App token supplied as `GH_TOKEN`. Plain `git push` does not use it
 automatically.
 
-Run `gh mint config` once to apply the policy below to your existing Copilot home, or merge it into `settings.json`
+Run `mint config` once to apply the policy below to your existing Copilot home, or merge it into `settings.json`
 yourself. It applies to sandboxed Copilot sessions using that home. The command leaves tool grants unchanged and
-does not enable sandboxing for ordinary Copilot launches. Mint checks the policy before minting a token.
+does not enable sandboxing for ordinary Copilot launches. mint checks the policy before minting a token.
 
 ```json
 {
@@ -149,7 +153,7 @@ does not enable sandboxing for ordinary Copilot launches. Mint checks the policy
 }
 ```
 
-On Windows, `gh mint config` enables **Allow local network** when needed for the credential proxy. If configuring
+On Windows, `mint config` enables **Allow local network** when needed for the credential proxy. If configuring
 manually, enable it in `/sandbox config`.
 
 ### Allow tools, caches, and dependency sources
@@ -157,7 +161,7 @@ manually, enable it in `/sandbox config`.
 Use `/sandbox config` or the `sandbox.userPolicy` section of your Copilot `settings.json`. With automatic
 developer-tool access turned off, grant runtime directories read-only and build or download caches read/write.
 For Go, find the actual locations with `go env GOROOT GOCACHE GOMODCACHE`. For PowerShell 7 on Windows, put the
-standalone install ahead of the Store alias on `PATH` before starting Mint.
+standalone install ahead of the Store alias on `PATH` before starting mint.
 
 For example, merge these Windows path grants into your existing settings and adjust the paths as needed:
 
@@ -184,59 +188,25 @@ or `/sandbox policy pwsh` to check the resulting grants.
 Run inside a Git working tree:
 
 ```powershell
-gh mint
-gh mint --model YOUR_MODEL
-gh mint -p "Explain this repository" -s
+mint
+mint --model YOUR_MODEL
+mint -p "Explain this repository" -s
 ```
 
-Except for the `setup` and `config` commands, arguments after `gh mint` are passed to Copilot unchanged, including `--help`,
-`--version`, and `--`. Mint rejects flags that disable sandboxing or override secret filtering. Arguments are passed
+Except for the `setup` and `config` commands, arguments after `mint` are passed to Copilot unchanged, including `--help`,
+`--version`, and `--`. mint rejects flags that disable sandboxing or override secret filtering. Arguments are passed
 without a shell. Copilot starts at the checkout root by default, including
-when you invoke the extension from a subdirectory. A non-default or ambiguous remote is never silently selected.
+when you invoke mint from a subdirectory. A non-default or ambiguous remote is never silently selected.
 
 ### Lifetime and cleanup
 
-GitHub installation tokens expire after one hour. There is no transparent refresh. Restart `gh mint` when needed.
+GitHub installation tokens expire after one hour. There is no transparent refresh. Restart `mint` when needed.
 Changing directories, remotes, or the prompt does not expand the already-minted token's access.
 
 The launcher attempts to revoke the token on normal exit, child failure, and handled interruption. A hard kill or
 failed revocation leaves the token valid until its expiry. Temporary Git and GitHub CLI configuration is removed on
-handled exit. Copilot keeps session history in your normal home; launch through Mint again when resuming to obtain
+handled exit. Copilot keeps session history in your normal home; launch through mint again when resuming to obtain
 a fresh scoped token.
-
-### Optional PowerShell profile wrapper
-
-Add the contents of [examples/profile.ps1](examples/profile.ps1) to your profile:
-
-```powershell
-function copilot {
-    $gh = Get-Command gh -CommandType Application -ErrorAction Stop | Select-Object -First 1
-    & ($gh.Source) mint @args
-}
-```
-
-This works in Windows PowerShell 5.1 and PowerShell 7. A loaded function takes precedence over executables on `PATH`,
-but not over aliases. A full executable path or a shell without your profile bypasses it. Nothing is installed into
-your profile automatically.
-
-## Existing tools investigated
-
-The following projects cover parts of this workflow. Findings refer to their implementations inspected during
-development, not a promise about future releases.
-
-- [dayflower/ghatoken](https://github.com/dayflower/ghatoken): its `--restrict-scope-repo` option implements genuine
-  single-repository minting. It does not configure or launch Copilot's sandbox.
-- [AmadeusITGroup/gh-app-auth](https://github.com/AmadeusITGroup/gh-app-auth): implements routing and child-process
-  execution, but its inspected token request uses an empty body and is installation-wide.
-- [Link-/gh-token](https://github.com/Link-/gh-token): supports signing, token issuance, and revocation, but the inspected
-  generation command does not narrow installation tokens to a repository.
-- [coding-hermes/gh-app-auth](https://github.com/coding-hermes/gh-app-auth): Python scripts implement App registration
-  and scoped issuance for a fleet, not a local Copilot launcher.
-- [jupyterhub/gh-scoped-creds](https://github.com/jupyterhub/gh-scoped-creds): a JupyterHub/HPC user-authorization
-  workflow, not this installation-token launcher.
-
-No complete matching extension was found in the repository searches performed. The useful minting primitive is
-GitHub's existing API, not a new token mechanism.
 
 ## Development
 
@@ -255,7 +225,7 @@ fieldalignment ./...
 go test ./...
 go vet ./...
 golangci-lint run
-go build -trimpath -o gh-mint.exe .
+go build -trimpath -o mint.exe .
 ```
 
 Tests use local HTTP servers, ephemeral test keys, and a real helper subprocess. They verify the repository and
@@ -263,19 +233,19 @@ permission inheritance, JWT signatures, encrypted-key setup and decryption, redi
 forwarding, PEM-directory guardrails, revocation,
 and exit-status propagation without live GitHub credentials.
 
-CI checks Windows, Linux, and macOS. Every push to protected `main` automatically builds a release using the same
-platform binaries and asset names as
-[cli/gh-extension-precompile](https://github.com/cli/gh-extension-precompile). Windows executables are Authenticode
-signed with Azure Artifact Signing using the same account and certificate profile as oh-my-posh. Signatures must
-be valid and timestamped before publication. Other platforms are not Authenticode signed. GitHub build provenance
-attestations cover the final release binaries, including the signed Windows files.
+CI checks Windows, Linux, and macOS. Every push to protected `main` automatically builds standalone macOS, Linux, and FreeBSD
+binaries and architecture-specific Windows MSIX packages. Windows executables and MSIX packages are Authenticode
+signed with Azure Artifact Signing using the existing release signing setup. Signatures must be valid and timestamped
+before publication. Other platform binaries are not Authenticode signed. GitHub build provenance attestations cover
+the final release assets.
 
 Before merging a release workflow change, configure the `AZURE_TENANT_ID`, `AZURE_CLIENT_ID`, and `AZURE_CLIENT_SECRET`
 secrets in the protected GitHub `release` environment using the existing oh-my-posh signing identity. Remove any
 repository-level copies: otherwise a different workflow could bypass the environment's approval gate.
-That identity needs the Artifact Signing Certificate Profile Signer role for the `oh-my-posh` profile in the `oh-my-posh` account at
+That identity needs the Artifact Signing Certificate Profile Signer role for the configured profile in the signing account at
 `https://weu.codesigning.azure.net`. Missing credentials or failed signing abort the release; unsigned Windows
-executables are never published as a fallback.
+executables or MSIX packages are never published as a fallback. The MSIX publisher in its manifest is
+`CN=Jan Joris De Dobbeleer, O=Jan Joris De Dobbeleer, L=Diest, C=BE`.
 
 Keep the `release` environment restricted to the `main` branch so workflows running from other branches or tags
 cannot access signing credentials. Main's required pull request checks are the release gate; the release workflow
@@ -291,8 +261,7 @@ permissions, and it has no Azure credentials or source checkout. Release tags ar
 Release tags are created automatically; only administrators may update or delete them. Tag pushes do not trigger
 release jobs. Repository administrators remain trusted to manage these controls.
 
-Workflow actions are pinned to commit SHAs. The extension naming and release layout follow
-[GitHub's extension authoring guide](https://docs.github.com/en/github-cli/github-cli/creating-github-cli-extensions).
+Workflow actions are pinned to commit SHAs.
 
 Use [Conventional Commits](https://www.conventionalcommits.org/) for commit messages, for example
 `feat: add a launcher option` or `fix(config): validate the remote`. CI checks every commit in pull requests

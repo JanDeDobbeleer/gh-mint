@@ -1,4 +1,4 @@
-module github.com/JanDeDobbeleer/gh-mint
+module github.com/JanDeDobbeleer/mint
 
 go 1.27.4
 

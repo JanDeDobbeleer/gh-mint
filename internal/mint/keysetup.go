@@ -70,7 +70,7 @@ func encryptSetupKey(dir string, cfg config, prompts keyPrompter, stdout io.Writ
 		return err
 	}
 	configured = true
-	if _, err := fmt.Fprintln(stdout, "Configured gh-mint with a verified encrypted private key. Launches will ask for its passphrase."); err != nil {
+	if _, err := fmt.Fprintln(stdout, "Configured mint with a verified encrypted private key. Launches will ask for its passphrase."); err != nil {
 		return err
 	}
 	remove, err := prompts.confirm(fmt.Sprintf("Delete the original private key at %q? Backups are not erased. Type yes to delete [no]: ", source))
@@ -104,7 +104,7 @@ func updateKeyFile(dir string, expected config, path string) error {
 	}
 	var values map[string]json.RawMessage
 	if json.Unmarshal(data, &values) != nil {
-		return errors.New("invalid gh-mint configuration")
+		return errors.New("invalid mint configuration")
 	}
 	values["key_file"], err = json.Marshal(path)
 	if err != nil {

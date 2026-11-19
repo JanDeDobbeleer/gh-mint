@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -108,14 +107,6 @@ func TestSessionLaunchesAnIsolatedChildAndRevokesItsToken(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			var revoked atomic.Bool
-			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				assert.Equal(t, http.MethodDelete, r.Method)
-				assert.Equal(t, "/installation/token", r.URL.Path)
-				assert.Equal(t, "Bearer repository-test-token", r.Header.Get("Authorization"))
-				revoked.Store(true)
-				w.WriteHeader(http.StatusNoContent)
-			}))
-			defer server.Close()
 			root, err := canonicalPath(t.TempDir())
 			require.NoError(t, err)
 			keyDir := filepath.Join(t.TempDir(), "private")
@@ -129,7 +120,16 @@ func TestSessionLaunchesAnIsolatedChildAndRevokesItsToken(t *testing.T) {
 				args = []string{"--prompt=" + tt.prompt}
 			}
 			s := session{
-				github:  &githubClient{base: server.URL, http: server.Client()},
+				github: &githubClient{
+					base: "https://api.github.test",
+					http: &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+						assert.Equal(t, http.MethodDelete, request.Method)
+						assert.Equal(t, "/installation/token", request.URL.Path)
+						assert.Equal(t, "Bearer repository-test-token", request.Header.Get("Authorization"))
+						revoked.Store(true)
+						return testHTTPResponse(request, http.StatusNoContent, nil, ""), nil
+					})},
+				},
 				execute: execute, stdout: &stdout, stderr: &stderr, stdin: strings.NewReader(""),
 				cfg: config{Copilot: binary}, repo: repository{Root: root, Owner: "owner", Name: "project"},
 				copilotCredential: "copilot-account-secret",
@@ -292,17 +292,17 @@ func TestSandboxCredentialCheckUsesSavedSettings(t *testing.T) {
 }
 
 func TestCopilotReadsSavedSandboxPolicy(t *testing.T) {
-	binary := os.Getenv("GH_MINT_TEST_COPILOT")
+	binary := os.Getenv("MINT_TEST_COPILOT")
 	if binary == "" {
-		t.Skip("set GH_MINT_TEST_COPILOT to opt into the installed CLI configuration check")
+		t.Skip("set MINT_TEST_COPILOT to opt into the installed CLI configuration check")
 	}
 	require.NoError(t, checkSandboxSettingsFile(t, binary, scopedSandboxSettings))
 }
 
 func TestApplySandboxSettingsWithCopilot(t *testing.T) {
-	binary := os.Getenv("GH_MINT_TEST_COPILOT")
+	binary := os.Getenv("MINT_TEST_COPILOT")
 	if binary == "" {
-		t.Skip("set GH_MINT_TEST_COPILOT to opt into the installed CLI configuration check")
+		t.Skip("set MINT_TEST_COPILOT to opt into the installed CLI configuration check")
 	}
 	home := t.TempDir()
 	t.Setenv("COPILOT_HOME", home)

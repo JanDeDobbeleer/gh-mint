@@ -1,5 +1,8 @@
 <p align="center">
-  <img src="assets/mint-logo.svg" alt="Mint" width="200">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="assets/mint-logo-dark.svg">
+    <img src="assets/mint-logo.svg" alt="Mint" width="200">
+  </picture>
 </p>
 
 # mint

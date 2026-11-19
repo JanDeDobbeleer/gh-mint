@@ -63,7 +63,7 @@ func discoverRepository(ctx context.Context, remote string) (repository, error) 
 	command.Env = env
 	output, err := command.Output()
 	if err != nil {
-		return repository{}, errors.New("run gh mint inside a Git working tree")
+		return repository{}, errors.New("run mint inside a Git working tree")
 	}
 	root, err := canonicalPath(strings.TrimSpace(string(output)))
 	if err != nil {
@@ -113,7 +113,7 @@ func protectPaths(repo repository, dir string, cfg config) ([]string, error) {
 		return nil, err
 	}
 	if within(configDir, repo.Root) || within(repo.Root, configDir) {
-		return nil, errors.New("gh-mint configuration directory must be outside and not contain the working tree")
+		return nil, errors.New("mint configuration directory must be outside and not contain the working tree")
 	}
 	if strings.ContainsAny(keyDirectory+configDir, "*?[]") {
 		return nil, errors.New("private key and configuration directories cannot contain glob metacharacters")

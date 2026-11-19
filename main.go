@@ -8,7 +8,7 @@ import (
 	"os/exec"
 	"os/signal"
 
-	"github.com/JanDeDobbeleer/gh-mint/internal/mint"
+	"github.com/JanDeDobbeleer/mint/internal/mint"
 )
 
 var version = "dev"
@@ -33,6 +33,6 @@ func run() int {
 		return 1
 	}
 
-	fmt.Fprintln(os.Stderr, "gh mint:", err)
+	fmt.Fprintln(os.Stderr, "mint:", err)
 	return 1
 }

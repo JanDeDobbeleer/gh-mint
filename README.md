@@ -1,5 +1,8 @@
 <p align="center">
-  <img src="assets/mint-logo.svg" alt="Mint" width="200">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="assets/mint-logo-dark.svg">
+    <img src="assets/mint-logo.svg" alt="Mint" width="200">
+  </picture>
 </p>
 
 # mint
@@ -70,10 +73,10 @@ Configure mint once:
 
 ```powershell
 mint setup --app-id 123456 --key-file "C:\secure\mint\app.pem"
-mint config
 ```
 
-`mint config` applies the [credential policy](#copilot-authentication) to your normal Copilot home.
+Setup applies the [credential policy](#copilot-authentication) to your normal Copilot home.
+Run `mint setup` with no options to reapply it. This updates only Mint's required settings; tool and cache grants stay unchanged.
 Initial setup never overwrites an existing configuration. Review and edit the existing configuration to change its values,
 or use the explicit key-encryption migration below.
 
@@ -140,9 +143,9 @@ session directory and adds it to `COPILOT_CUSTOM_INSTRUCTIONS_DIRS`. The instruc
 `git --config-env` against the scoped repository and how to open a PR after pushing. The file contains no secrets.
 This guides the agent; it does not change how plain `git push` works or rewrite Git remotes.
 
-Run `mint config` once to apply the policy below to your existing Copilot home, or merge it into `settings.json`
-yourself. It applies to sandboxed Copilot sessions using that home. The command leaves tool grants unchanged and
-does not enable sandboxing for ordinary Copilot launches. mint checks the policy before minting a token.
+`mint setup` applies the policy below to your existing Copilot home, or you can merge it into `settings.json` yourself.
+It applies to sandboxed Copilot sessions using that home. Setup leaves tool grants unchanged and does not enable
+sandboxing for ordinary Copilot launches. Mint checks the policy before minting a token.
 
 ```json
 {
@@ -163,7 +166,7 @@ does not enable sandboxing for ordinary Copilot launches. mint checks the policy
 }
 ```
 
-On Windows, `mint config` enables **Allow local network** when needed for the credential proxy. If configuring
+On Windows, `mint setup` enables **Allow local network** when needed for the credential proxy. If configuring
 manually, enable it in `/sandbox config`.
 
 ### Allow tools, caches, and dependency sources

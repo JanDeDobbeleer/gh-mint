@@ -1,8 +1,21 @@
-# Git authentication in this Mint session
+# Mint session instructions
 
-Use the repository in `GH_REPO` for authenticated Git operations. Keep the sandbox
-enabled. Do not use a personal credential, SSH, or a credential helper. Do not
-print credentials, add them to Git config files, or enable HTTP tracing.
+## Sandbox and file search
+
+On Windows, never call Copilot's built-in `glob` or `rg` search tools: their
+packaged executables are always denied by the sandbox. Do not probe, search for,
+or execute their runtime under `%LOCALAPPDATA%\copilot\pkg\`, even once. Use
+permitted repository inspection commands such as `git ls-files` and `git grep`
+instead; these only cover tracked files by default.
+
+Keep the sandbox enabled. If another operation is explicitly denied, report the
+block rather than retrying it through another tool or shell.
+
+## Git authentication
+
+Use the repository in `GH_REPO` for authenticated Git operations. Do not use a
+personal credential, SSH, or a credential helper. Do not print credentials, add
+them to Git config files, or enable HTTP tracing.
 
 For a push, use this pattern in PowerShell:
 
@@ -31,5 +44,15 @@ In a POSIX shell:
 Set `branch` to the intended remote branch before running the example. Use the same
 header and explicit HTTPS URL for authenticated fetches or ref lookups. Leave
 ordinary local Git commands unchanged. If a push fails, report it without falling
-back to another credential. After a successful push, use `gh pr create --head`
-with that branch so `gh` does not attempt another push.
+back to another credential.
+
+## Commands and pull requests
+
+- Use the active shell's syntax. In PowerShell, avoid complex `--jq` quoting; request
+  JSON with the command's `--json` option and parse it with PowerShell when needed.
+- Check each command's exit code and output before running dependent commands.
+- After pushing, use `gh pr create --head` with the pushed branch so `gh` does not
+  attempt another push.
+- Pass a full commit object ID to `--match-head-commit`; abbreviated SHAs are rejected.
+- Use `gh pr merge --auto` only if the repository permits auto-merge. If GitHub says
+  auto-merge is disabled, wait for required checks to pass, then use a regular merge.

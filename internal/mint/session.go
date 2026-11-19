@@ -174,23 +174,23 @@ func checkSandboxCredentials(ctx context.Context, binary, root string, environ [
 	}
 	if err != nil || json.Unmarshal(output, &policy) != nil ||
 		policy.Auth.Git == nil || *policy.Auth.Git || policy.Auth.GH == nil || *policy.Auth.GH {
-		return errors.New("saved Copilot settings must explicitly disable sandbox.auth.git and sandbox.auth.gh and configure scoped credential masking; run 'mint config'")
+		return errors.New("saved Copilot settings must explicitly disable sandbox.auth.git and sandbox.auth.gh and configure scoped credential masking; run 'mint setup'")
 	}
 	if policy.AllowBypass == nil || *policy.AllowBypass {
-		return errors.New("sandbox.allowBypass must be false in saved Copilot settings; run 'mint config'")
+		return errors.New("sandbox.allowBypass must be false in saved Copilot settings; run 'mint setup'")
 	}
 	if allow := policy.UserPolicy.Network.AllowLocalNetwork; os.PathSeparator == '\\' && allow != nil && !*allow {
-		return errors.New("sandbox.userPolicy.network.allowLocalNetwork must not be disabled on Windows; run 'mint config' to enable access to the credential proxy")
+		return errors.New("sandbox.userPolicy.network.allowLocalNetwork must not be disabled on Windows; run 'mint setup' to enable access to the credential proxy")
 	}
 	hosts := policy.Credentials.EnvVars["GH_TOKEN"].InjectHosts
 	slices.Sort(hosts)
 	if !slices.Equal(slices.Compact(hosts), githubTokenHosts[:]) {
-		return errors.New("sandbox.credentials.envVars.GH_TOKEN.injectHosts must contain exactly github.com, api.github.com, and uploads.github.com; run 'mint config'")
+		return errors.New("sandbox.credentials.envVars.GH_TOKEN.injectHosts must contain exactly github.com, api.github.com, and uploads.github.com; run 'mint setup'")
 	}
 	gitHosts := policy.Credentials.EnvVars["MINT_GIT_AUTH"].InjectHosts
 	slices.Sort(gitHosts)
 	if !slices.Equal(slices.Compact(gitHosts), []string{"github.com"}) {
-		return errors.New("sandbox.credentials.envVars.MINT_GIT_AUTH.injectHosts must contain only github.com; run 'mint config'")
+		return errors.New("sandbox.credentials.envVars.MINT_GIT_AUTH.injectHosts must contain only github.com; run 'mint setup'")
 	}
 	return nil
 }

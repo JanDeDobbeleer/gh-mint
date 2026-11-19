@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="assets/mint-logo.svg" alt="Mint" width="200">
+</p>
+
 # gh-mint
 
 Launch GitHub Copilot CLI in its local sandbox with a short-lived GitHub App token scoped to the current repository.

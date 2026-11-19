@@ -63,10 +63,6 @@ func TestProtectedPathsCannotOverlapWorkingTree(t *testing.T) {
 			for _, path := range []string{root, keyDir, configDir} {
 				require.NoError(t, os.MkdirAll(path, 0o700))
 			}
-			t.Setenv("APPDATA", filepath.Join(base, "appdata"))
-			t.Setenv("XDG_CONFIG_HOME", filepath.Join(base, "xdg"))
-			t.Setenv("COPILOT_HOME", filepath.Join(base, "copilot"))
-			t.Setenv("GH_CONFIG_DIR", filepath.Join(base, "gh"))
 			key := filepath.Join(keyDir, "key.pem")
 			require.NoError(t, os.WriteFile(key, nil, 0o600))
 			denied, err := protectPaths(repository{Root: root}, configDir, config{KeyFile: key})

@@ -18,6 +18,7 @@ const help = `Mint a single-repository GitHub App token and launch sandboxed Cop
 Usage:
   gh mint setup --app-id ID --key-file PATH [options]
   gh mint setup --encrypt-key
+  gh mint config
   gh mint [COPILOT ARGUMENTS...]
 
 Setup options:
@@ -38,7 +39,8 @@ Create and install a GitHub App:
   5. Open Credentials > Key pairs > New key. Secure the downloaded PEM in a
      dedicated directory outside checkouts; remove leftover download copies.
   6. Select Install App > target account > Only select repositories.
-  7. Run gh mint setup --app-id ID --key-file PATH, then gh mint in a checkout.
+  7. Run gh mint setup --app-id ID --key-file PATH, then gh mint config.
+     Start a session with gh mint in a checkout.
 
 Permissions:
   The App installation is the source of truth. Tokens inherit all its granted
@@ -56,15 +58,20 @@ Setup asks for a passphrase twice, verifies the saved encrypted key, and offers
 to delete the original only after configuration succeeds. Launches ask for the
 passphrase in a hidden terminal prompt; no decrypted PEM is written to disk.
 
-Each launch uses a temporary Copilot home and GitHub CLI configuration, requests
-the local sandbox, and masks COPILOT_GITHUB_TOKEN from shell and MCP environments.
+Each launch uses your usual Copilot home and requests the local sandbox.
+Configure its saved policy to disable automatic git/gh authentication and mask
+GH_TOKEN for GitHub.com, with sandbox bypass disabled. Mint checks those settings
+without changing them at launch. Run 'gh mint config' to apply those settings.
+Mint uses temporary GitHub CLI configuration and filters COPILOT_GITHUB_TOKEN
+from shell and MCP environments.
 The environment allowlist drops inherited GitHub tokens and other unapproved variables.
-Mint disables hooks, extensions, built-in MCP servers, and discovered project MCP servers.
-Project settings that weaken this policy and active project language servers are rejected.
-The key directory, mint configuration, and common credential paths are denied to
-sandboxed tools on a best-effort basis.
+Mint disables built-in and discovered project MCP servers, and rejects conflicting
+project settings and active project language servers. Your own Copilot configuration
+still applies. Built-in file tools are denied access to the key and mint configuration
+directories; configure OS sandbox denies separately.
 
-All Copilot arguments are forwarded unchanged and can weaken these protections.
+Copilot arguments are forwarded unchanged, except flags that disable sandboxing
+or override secret filtering are rejected. Only pass arguments you trust.
 The Copilot host process runs outside its local command sandbox. Mint scopes the
 token it issues; it is not an isolation boundary.
 `
@@ -73,6 +80,15 @@ func Run(ctx context.Context, args []string, _ string, stdin io.Reader, stdout, 
 	prompts := terminalPrompter{stdin: stdin, stderr: stderr}
 	if len(args) > 0 && args[0] == "setup" {
 		return setup(args[1:], stdout, stderr, prompts)
+	}
+	if len(args) > 0 && args[0] == "config" {
+		return configureSandbox(ctx, args[1:], stdout, stderr)
+	}
+	if err := checkLaunchArgs(args); err != nil {
+		return err
+	}
+	if home := os.Getenv("COPILOT_HOME"); home != "" && !filepath.IsAbs(home) {
+		return errors.New("inherited COPILOT_HOME must be absolute")
 	}
 	dir, err := configDirectory()
 	if err != nil {
@@ -99,6 +115,10 @@ func Run(ctx context.Context, args []string, _ string, stdin io.Reader, stdout, 
 	if err := checkCopilot(ctx, cfg.Copilot); err != nil {
 		return err
 	}
+	environ := os.Environ()
+	if err := checkSandboxCredentials(ctx, cfg.Copilot, repo.Root, environ); err != nil {
+		return err
+	}
 	credential, err := copilotCredential(ctx)
 	if err != nil {
 		return err
@@ -121,11 +141,10 @@ func Run(ctx context.Context, args []string, _ string, stdin io.Reader, stdout, 
 		stderr:            stderr,
 		cfg:               cfg,
 		repo:              repo,
-		configDir:         dir,
 		copilotCredential: credential,
 		args:              args,
 		denied:            denied,
-		environ:           os.Environ(),
+		environ:           environ,
 	}).runWithToken(ctx, token)
 }
 

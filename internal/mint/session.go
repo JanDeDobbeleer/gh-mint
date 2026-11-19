@@ -24,7 +24,6 @@ type session struct {
 	stderr            io.Writer
 	cfg               config
 	repo              repository
-	configDir         string
 	copilotCredential string
 	args              []string
 	denied            []string
@@ -44,11 +43,6 @@ func (s session) runWithToken(ctx context.Context, token installationToken) erro
 	if err != nil {
 		return err
 	}
-	home, err := os.MkdirTemp(s.configDir, "session-")
-	if err != nil {
-		return errors.New("cannot create an isolated Copilot home")
-	}
-	defer cleanupDirectory(home, s.stderr)
 	ghHome, err := os.MkdirTemp("", "gh-mint-gh-")
 	if err != nil {
 		return errors.New("cannot create an isolated GitHub CLI configuration directory")
@@ -58,16 +52,12 @@ func (s session) runWithToken(ctx context.Context, token installationToken) erro
 		return errors.New("cannot create an isolated Git configuration")
 	}
 
-	settings := sandboxSettings(s.denied)
-	data, err := json.MarshalIndent(settings, "", "  ")
-	if err != nil {
-		return err
-	}
-	if err := os.WriteFile(filepath.Join(home, "settings.json"), data, 0o600); err != nil {
-		return errors.New("cannot write isolated Copilot settings")
-	}
-
 	args := []string{"--sandbox", "--disable-builtin-mcps", "--secret-env-vars=COPILOT_GITHUB_TOKEN"}
+	for _, path := range s.denied {
+		for _, kind := range []string{"read", "write"} {
+			args = append(args, "--deny-tool="+kind+"("+path+")", "--deny-tool="+kind+"("+filepath.Join(path, "**")+")")
+		}
+	}
 	for _, name := range servers {
 		args = append(args, "--disable-mcp-server="+name)
 	}
@@ -84,7 +74,6 @@ func (s session) runWithToken(ctx context.Context, token installationToken) erro
 		"GIT_CONFIG_NOSYSTEM":             "1",
 		"GIT_TERMINAL_PROMPT":             "0",
 		"COPILOT_GITHUB_TOKEN":            s.copilotCredential,
-		"COPILOT_HOME":                    home,
 		"COPILOT_DISABLE_LOGIN_SHELL_ENV": "1",
 	})
 	cmd.Stdin = s.stdin
@@ -103,41 +92,69 @@ func cleanupDirectory(path string, stderr io.Writer) {
 	}
 }
 
-func sandboxSettings(denied []string) map[string]any {
-	paths := make([]string, 0, len(denied))
-	for _, path := range denied {
-		paths = append(paths, strings.ReplaceAll(path, "$", "$$"))
+func checkLaunchArgs(args []string) error {
+	for _, arg := range args {
+		if arg == "--" {
+			break
+		}
+		flag, _, _ := strings.Cut(arg, "=")
+		switch flag {
+		case "--no-sandbox", "--secret-env-vars":
+			return fmt.Errorf("%s would override Mint's sandbox protections", flag)
+		case "--sandbox":
+			if arg != flag && arg != "--sandbox=true" {
+				return errors.New("sandboxing is required by Mint")
+			}
+		}
 	}
-	return map[string]any{
-		"disableAllHooks": true,
-		"extensions":      map[string]any{"mode": "disabled"},
-		"sandbox": map[string]any{
-			"enabled":                    true,
-			"addCurrentWorkingDirectory": true,
-			"allowBypass":                false,
-			"allowDevToolAccess":         false,
-			"sandboxMcpServers":          true,
-			"sandboxLspServers":          true,
-			"sandboxExtensions":          true,
-			"auth":                       map[string]any{"git": false, "gh": false},
-			"credentials": map[string]any{
-				"envVars": map[string]any{
-					"GH_TOKEN": map[string]any{
-						"injectHosts": []string{"github.com", "api.github.com", "uploads.github.com"},
-					},
-				},
-			},
-			"userPolicy": map[string]any{
-				"filesystem": map[string]any{"deniedPaths": paths},
-				"network":    map[string]any{"allowOutbound": true, "allowLocalNetwork": true},
-			},
-		},
+	return nil
+}
+
+func checkSandboxCredentials(ctx context.Context, binary, root string, environ []string) error {
+	probeCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(probeCtx, binary, "config", "sandbox")
+	cmd.Dir = root
+	cmd.Env = childEnvironment(environ, nil)
+	output, err := cmd.Output()
+	var policy struct {
+		Auth struct {
+			Git *bool `json:"git"`
+			GH  *bool `json:"gh"`
+		} `json:"auth"`
+		Credentials struct {
+			EnvVars map[string]struct {
+				InjectHosts []string `json:"injectHosts"`
+			} `json:"envVars"`
+		} `json:"credentials"`
+		UserPolicy struct {
+			Network struct {
+				AllowLocalNetwork *bool `json:"allowLocalNetwork"`
+			} `json:"network"`
+		} `json:"userPolicy"`
+		AllowBypass *bool `json:"allowBypass"`
 	}
+	if err != nil || json.Unmarshal(output, &policy) != nil ||
+		policy.Auth.Git == nil || *policy.Auth.Git || policy.Auth.GH == nil || *policy.Auth.GH {
+		return errors.New("saved Copilot settings must explicitly disable sandbox.auth.git and sandbox.auth.gh and configure scoped GH_TOKEN masking; run 'gh mint config'")
+	}
+	if policy.AllowBypass == nil || *policy.AllowBypass {
+		return errors.New("sandbox.allowBypass must be false in saved Copilot settings; run 'gh mint config'")
+	}
+	if allow := policy.UserPolicy.Network.AllowLocalNetwork; os.PathSeparator == '\\' && allow != nil && !*allow {
+		return errors.New("sandbox.userPolicy.network.allowLocalNetwork must not be disabled on Windows; run 'gh mint config' to enable access to the credential proxy")
+	}
+	hosts := policy.Credentials.EnvVars["GH_TOKEN"].InjectHosts
+	slices.Sort(hosts)
+	if !slices.Equal(slices.Compact(hosts), githubTokenHosts[:]) {
+		return errors.New("sandbox.credentials.envVars.GH_TOKEN.injectHosts must contain exactly github.com, api.github.com, and uploads.github.com; run 'gh mint config'")
+	}
+	return nil
 }
 
 func childEnvironment(environ []string, overrides map[string]string) []string {
 	allowed := map[string]bool{}
-	for name := range strings.FieldsSeq(`PATH PATHEXT SYSTEMROOT WINDIR COMSPEC SYSTEMDRIVE
+	for name := range strings.FieldsSeq(`PATH PATHEXT SYSTEMROOT WINDIR COMSPEC SYSTEMDRIVE COPILOT_HOME
 		HOME USERPROFILE HOMEDRIVE HOMEPATH APPDATA LOCALAPPDATA PROGRAMDATA ALLUSERSPROFILE
 		PROGRAMFILES PROGRAMFILES(X86) PROGRAMW6432 COMMONPROGRAMFILES COMMONPROGRAMFILES(X86)
 		TEMP TMP TMPDIR USER USERNAME USERDOMAIN LOGNAME SHELL PSModulePath

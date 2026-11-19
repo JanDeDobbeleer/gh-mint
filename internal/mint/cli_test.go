@@ -19,6 +19,8 @@ func TestCommandEntryPoints(t *testing.T) {
 		args []string
 	}{
 		{name: "setup help", args: []string{"setup", "--help"}},
+		{name: "config help", args: []string{"config", "--help"}, want: "Usage: gh mint config"},
+		{name: "invalid config arguments", args: []string{"config", "--no-sandbox"}, err: "without arguments"},
 		{name: "missing setup key", args: []string{"setup", "--app-id", "123"}, err: "are required"},
 		{name: "removed permission override", args: []string{"setup", "--permissions=contents=read"}, err: "invalid setup arguments"},
 	}
@@ -50,6 +52,14 @@ func TestCopilotArgumentsReachLaunch(t *testing.T) {
 			err := Run(t.Context(), args, "test-version", nil, &stdout, &stderr)
 			require.ErrorContains(t, err, "cannot read configuration")
 			assert.Empty(t, stdout.String())
+		})
+	}
+}
+
+func TestCopilotArgumentsCannotOverrideSandboxProtections(t *testing.T) {
+	for _, arg := range []string{"--no-sandbox", "--sandbox=false", "--secret-env-vars=OTHER"} {
+		t.Run(arg, func(t *testing.T) {
+			require.ErrorContains(t, Run(t.Context(), []string{arg}, "test-version", nil, nil, nil), "sandbox")
 		})
 	}
 }

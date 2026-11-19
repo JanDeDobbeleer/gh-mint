@@ -12,6 +12,10 @@ import (
 )
 
 func TestCommandEntryPoints(t *testing.T) {
+	base := t.TempDir()
+	for _, name := range []string{"APPDATA", "HOME", "XDG_CONFIG_HOME", "COPILOT_HOME"} {
+		t.Setenv(name, base)
+	}
 	tests := []struct {
 		name string
 		want string
@@ -19,8 +23,7 @@ func TestCommandEntryPoints(t *testing.T) {
 		args []string
 	}{
 		{name: "setup help", args: []string{"setup", "--help"}},
-		{name: "config help", args: []string{"config", "--help"}, want: "Usage: mint config"},
-		{name: "invalid config arguments", args: []string{"config", "--no-sandbox"}, err: "without arguments"},
+		{name: "removed config command is forwarded", args: []string{"config", "--help"}, err: "cannot read configuration"},
 		{name: "missing setup key", args: []string{"setup", "--app-id", "123"}, err: "are required"},
 		{name: "removed permission override", args: []string{"setup", "--permissions=contents=read"}, err: "invalid setup arguments"},
 	}
@@ -69,12 +72,15 @@ func TestSetupEncryptsKeyAndStoresOnlyReference(t *testing.T) {
 	for _, name := range []string{"APPDATA", "HOME", "XDG_CONFIG_HOME"} {
 		t.Setenv(name, base)
 	}
+	t.Setenv("COPILOT_HOME", base)
 	keyPath := filepath.Join(base, "private.pem")
 	writeTestKey(t, keyPath, testKey(t))
 	binary := fakeCopilotBinary(t)
+	settingsPath := filepath.Join(base, "settings.json")
+	require.NoError(t, os.WriteFile(settingsPath, []byte(`{"theme":"dark","sandbox":{"userPolicy":{"filesystem":{"readonlyPaths":["~/toolchain"]}}}}`), 0o600))
 	var stdout, stderr bytes.Buffer
 	prompts := &testKeyPrompter{passwords: []string{"test passphrase", "test passphrase"}}
-	err := setup([]string{
+	err := setup(t.Context(), []string{
 		"--app-id=42", "--key-file=" + keyPath, "--copilot=" + binary,
 	}, &stdout, &stderr, prompts)
 	require.NoError(t, err)
@@ -97,6 +103,13 @@ func TestSetupEncryptsKeyAndStoresOnlyReference(t *testing.T) {
 	for _, buffer := range prompts.buffers {
 		assert.Equal(t, make([]byte, len(buffer)), buffer)
 	}
+	settings, err := os.ReadFile(settingsPath)
+	require.NoError(t, err)
+	assert.Contains(t, string(settings), `"theme":"dark"`)
+	assert.Contains(t, string(settings), `"readonlyPaths":["~/toolchain"]`)
+	assert.Contains(t, string(settings), `"allowBypass":false`)
+	assert.Contains(t, string(settings), `"GH_TOKEN"`)
+	require.NoError(t, setup(t.Context(), nil, &bytes.Buffer{}, &bytes.Buffer{}, &testKeyPrompter{}))
 }
 
 func TestSetupEncryptsExistingConfiguration(t *testing.T) {
@@ -104,17 +117,18 @@ func TestSetupEncryptsExistingConfiguration(t *testing.T) {
 	for _, name := range []string{"APPDATA", "HOME", "XDG_CONFIG_HOME"} {
 		t.Setenv(name, base)
 	}
+	t.Setenv("COPILOT_HOME", base)
 	dir, err := configDirectory()
 	require.NoError(t, err)
 	path, err := canonicalPath(t.TempDir())
 	require.NoError(t, err)
 	path = filepath.Join(path, "original.pem")
 	writeTestKey(t, path, testKey(t))
-	cfg := config{AppID: 42, Remote: "upstream", KeyFile: path, Copilot: filepath.Join(base, "copilot")}
+	cfg := config{AppID: 42, Remote: "upstream", KeyFile: path, Copilot: fakeCopilotBinary(t)}
 	require.NoError(t, writeConfig(dir, cfg))
 	var stdout, stderr bytes.Buffer
 	prompts := &testKeyPrompter{passwords: []string{"test passphrase", "test passphrase"}, remove: true}
-	require.NoError(t, setup([]string{"--encrypt-key"}, &stdout, &stderr, prompts))
+	require.NoError(t, setup(t.Context(), []string{"--encrypt-key"}, &stdout, &stderr, prompts))
 	updated, err := readConfig(dir)
 	require.NoError(t, err)
 	assert.Equal(t, cfg.AppID, updated.AppID)
@@ -123,7 +137,7 @@ func TestSetupEncryptsExistingConfiguration(t *testing.T) {
 	assert.NotEqual(t, path, updated.KeyFile)
 	assert.NoFileExists(t, path)
 	assert.Equal(t, 1, prompts.confirmations)
-	require.NoError(t, setup([]string{"--encrypt-key"}, &stdout, &stderr, &testKeyPrompter{}))
+	require.NoError(t, setup(t.Context(), []string{"--encrypt-key"}, &stdout, &stderr, &testKeyPrompter{}))
 	assert.Contains(t, stdout.String(), "already encrypted")
 }
 
@@ -140,7 +154,7 @@ func TestSetupDoesNotOverwriteExistingConfiguration(t *testing.T) {
 	require.NoError(t, os.MkdirAll(dir, 0o700))
 	configPath := filepath.Join(dir, "config.json")
 	require.NoError(t, os.WriteFile(configPath, []byte("existing"), 0o600))
-	err = setup([]string{"--app-id=42", "--key-file=" + keyPath, "--copilot=" + binary}, &bytes.Buffer{}, &bytes.Buffer{}, &testKeyPrompter{})
+	err = setup(t.Context(), []string{"--app-id=42", "--key-file=" + keyPath, "--copilot=" + binary}, &bytes.Buffer{}, &bytes.Buffer{}, &testKeyPrompter{})
 	require.ErrorContains(t, err, "never overwritten")
 	data, err := os.ReadFile(configPath)
 	require.NoError(t, err)
@@ -148,7 +162,7 @@ func TestSetupDoesNotOverwriteExistingConfiguration(t *testing.T) {
 }
 
 func TestSetupRejectsMixedMigrationOptions(t *testing.T) {
-	err := setup([]string{"--encrypt-key", "--remote=other"}, &bytes.Buffer{}, &bytes.Buffer{}, &testKeyPrompter{})
+	err := setup(t.Context(), []string{"--encrypt-key", "--remote=other"}, &bytes.Buffer{}, &bytes.Buffer{}, &testKeyPrompter{})
 	require.ErrorContains(t, err, "without other setup options")
 }
 

@@ -36,9 +36,26 @@ func TestMain(m *testing.M) {
 }
 
 func fakeCopilot() int {
+	args := os.Args[1:]
 	if slices.Contains(os.Args[1:], "--version") {
 		fmt.Println("GitHub Copilot CLI 1.0.112.")
 		return 0
+	}
+	if slices.Equal(args, []string{"config", "sandbox"}) {
+		home := os.Getenv("COPILOT_HOME")
+		data, err := os.ReadFile(filepath.Join(home, "settings.json"))
+		if err != nil {
+			return 91
+		}
+		var settings map[string]json.RawMessage
+		if json.Unmarshal(data, &settings) != nil || len(settings["sandbox"]) == 0 {
+			return 91
+		}
+		fmt.Println(string(settings["sandbox"]))
+		return 0
+	}
+	if len(args) >= 3 && args[0] == "config" && args[1] == "--global" {
+		return fakeCopilotGlobalConfig(args[2:])
 	}
 	snapshot := childSnapshot{Args: os.Args[1:], Env: make(map[string]string)}
 	for _, entry := range os.Environ() {
@@ -54,14 +71,6 @@ func fakeCopilot() int {
 		data, err := os.ReadFile(filepath.Join(home, "settings.json"))
 		if err != nil {
 			return 91
-		}
-		if slices.Equal(os.Args[1:], []string{"config", "sandbox"}) {
-			var settings map[string]json.RawMessage
-			if json.Unmarshal(data, &settings) != nil || len(settings["sandbox"]) == 0 {
-				return 91
-			}
-			fmt.Println(string(settings["sandbox"]))
-			return 0
 		}
 		if json.Unmarshal(data, &snapshot.Settings) != nil {
 			return 91
@@ -82,6 +91,67 @@ func fakeCopilot() int {
 		return 7
 	}
 	return 0
+}
+
+func fakeCopilotGlobalConfig(args []string) int {
+	home := os.Getenv("COPILOT_HOME")
+	if home == "" {
+		return 91
+	}
+	path := filepath.Join(home, "settings.json")
+	settings := make(map[string]any)
+	if data, err := os.ReadFile(path); err == nil {
+		if json.Unmarshal(data, &settings) != nil {
+			return 91
+		}
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return 91
+	}
+	if len(args) == 2 && args[0] == "--rm" {
+		deleteCopilotSetting(settings, strings.Split(args[1], "."))
+	} else if len(args) == 2 {
+		var value any
+		if json.Unmarshal([]byte(args[1]), &value) != nil {
+			value = args[1]
+		}
+		setCopilotSetting(settings, strings.Split(args[0], "."), value)
+	} else {
+		return 91
+	}
+	data, err := json.Marshal(settings)
+	if err != nil || os.MkdirAll(home, 0o700) != nil || os.WriteFile(path, data, 0o600) != nil {
+		return 91
+	}
+	return 0
+}
+
+func setCopilotSetting(settings map[string]any, path []string, value any) {
+	if len(path) == 1 {
+		if path[0] == "injectHosts" {
+			hosts, _ := settings[path[0]].([]any)
+			settings[path[0]] = append(hosts, value)
+		} else {
+			settings[path[0]] = value
+		}
+		return
+	}
+	child, _ := settings[path[0]].(map[string]any)
+	if child == nil {
+		child = make(map[string]any)
+		settings[path[0]] = child
+	}
+	setCopilotSetting(child, path[1:], value)
+}
+
+func deleteCopilotSetting(settings map[string]any, path []string) {
+	if len(path) == 1 {
+		delete(settings, path[0])
+		return
+	}
+	child, _ := settings[path[0]].(map[string]any)
+	if child != nil {
+		deleteCopilotSetting(child, path[1:])
+	}
 }
 
 func fakeCopilotBinary(t *testing.T) string {

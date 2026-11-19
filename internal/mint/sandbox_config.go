@@ -2,50 +2,14 @@ package mint
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"io"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"time"
 )
 
 var githubTokenHosts = [...]string{"api.github.com", "github.com", "uploads.github.com"}
-
-func configureSandbox(ctx context.Context, args []string, stdout, stderr io.Writer) error {
-	if len(args) != 0 {
-		if len(args) == 1 && (args[0] == "--help" || args[0] == "-h") {
-			_, err := fmt.Fprintln(stdout, `Usage: mint config
-
-After setup, apply mint's credential policy to your existing Copilot settings:
-disable automatic Git and gh authentication and bypass, and mask Mint's credentials
-for GitHub.com.
-On Windows, enable local network access so the sandbox can reach the credential proxy.
-Tool paths and other settings are left unchanged. This affects all sandboxed Copilot
-sessions using that home. It does not mint a token.`)
-			return err
-		}
-		return errors.New("use 'mint config' without arguments")
-	}
-	if home := os.Getenv("COPILOT_HOME"); home != "" && !filepath.IsAbs(home) {
-		return errors.New("inherited COPILOT_HOME must be absolute")
-	}
-	dir, err := configDirectory()
-	if err != nil {
-		return err
-	}
-	cfg, err := readConfig(dir)
-	if err != nil {
-		return err
-	}
-
-	if err := applySandboxSettings(ctx, cfg.Copilot, dir, os.Environ(), stderr); err != nil {
-		return err
-	}
-	_, err = fmt.Fprintln(stdout, "Configured mint's credential policy in your Copilot settings. Tool and cache grants are unchanged.")
-	return err
-}
 
 func applySandboxSettings(ctx context.Context, binary, dir string, environ []string, stderr io.Writer) error {
 	if checkSandboxCredentials(ctx, binary, dir, environ) == nil {

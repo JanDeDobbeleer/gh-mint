@@ -17,8 +17,8 @@ const help = `mint scopes GitHub App access to one repository and launches sandb
 
 Usage:
   mint setup --app-id ID --key-file PATH [options]
+  mint setup
   mint setup --encrypt-key
-  mint config
   mint [COPILOT ARGUMENTS...]
 
 Setup options:
@@ -39,7 +39,7 @@ Create and install a GitHub App:
   5. Open Credentials > Key pairs > New key. Secure the downloaded PEM in a
      dedicated directory outside checkouts; remove leftover download copies.
   6. Select Install App > target account > Only select repositories.
-  7. Run mint setup --app-id ID --key-file PATH, then mint config.
+  7. Run mint setup --app-id ID --key-file PATH.
      Start a session with mint in a checkout.
 
 Permissions:
@@ -59,10 +59,10 @@ to delete the original only after configuration succeeds. Launches ask for the
 passphrase in a hidden terminal prompt; no decrypted PEM is written to disk.
 
 Each launch uses your usual Copilot home and requests the local sandbox.
-Configure its saved policy to disable automatic Git and gh authentication and
-bypass, and mask Mint's credentials. Run 'mint config' to apply those settings.
-Launches check the policy without changing it and load temporary instructions
-for authenticated Git HTTPS commands.
+Setup configures its saved policy to disable automatic Git and gh authentication
+and bypass, and mask Mint's credentials. Run 'mint setup' to reapply those
+settings. Launches check the policy without changing it and load temporary
+instructions for authenticated Git HTTPS commands.
 mint uses temporary GitHub CLI configuration and filters COPILOT_GITHUB_TOKEN
 from shell and MCP environments.
 The environment allowlist drops inherited GitHub tokens and other unapproved variables.
@@ -80,10 +80,7 @@ token it issues; it is not an isolation boundary.
 func Run(ctx context.Context, args []string, _ string, stdin io.Reader, stdout, stderr io.Writer) error {
 	prompts := terminalPrompter{stdin: stdin, stderr: stderr}
 	if len(args) > 0 && args[0] == "setup" {
-		return setup(args[1:], stdout, stderr, prompts)
-	}
-	if len(args) > 0 && args[0] == "config" {
-		return configureSandbox(ctx, args[1:], stdout, stderr)
+		return setup(ctx, args[1:], stdout, stderr, prompts)
 	}
 	if err := checkLaunchArgs(args); err != nil {
 		return err
@@ -149,7 +146,7 @@ func Run(ctx context.Context, args []string, _ string, stdin io.Reader, stdout, 
 	}).runWithToken(ctx, token)
 }
 
-func setup(args []string, stdout, stderr io.Writer, prompts keyPrompter) error {
+func setup(ctx context.Context, args []string, stdout, stderr io.Writer, prompts keyPrompter) error {
 	flags := flag.NewFlagSet("mint setup", flag.ContinueOnError)
 	flags.SetOutput(stderr)
 	appID := flags.String("app-id", "", "GitHub App numeric ID")
@@ -164,6 +161,12 @@ func setup(args []string, stdout, stderr io.Writer, prompts keyPrompter) error {
 		}
 		return errors.New("invalid setup arguments; run 'mint setup --help'")
 	}
+	if home := os.Getenv("COPILOT_HOME"); home != "" && !filepath.IsAbs(home) {
+		return errors.New("inherited COPILOT_HOME must be absolute")
+	}
+	if len(args) == 0 {
+		return configureSetup(ctx, stdout, stderr)
+	}
 	if *encryptKey {
 		otherFlags := false
 		flags.Visit(func(f *flag.Flag) { otherFlags = otherFlags || f.Name != "encrypt-key" })
@@ -176,6 +179,12 @@ func setup(args []string, stdout, stderr io.Writer, prompts keyPrompter) error {
 		}
 		cfg, err := readConfig(dir)
 		if err != nil {
+			return err
+		}
+		if err := applySandboxSettings(ctx, cfg.Copilot, dir, os.Environ(), stderr); err != nil {
+			return err
+		}
+		if _, err := fmt.Fprintln(stdout, "Configured Copilot credential policy in your existing settings. Tool and cache grants are unchanged."); err != nil {
 			return err
 		}
 		return encryptSetupKey(dir, cfg, prompts, stdout, true)
@@ -212,7 +221,32 @@ func setup(args []string, stdout, stderr io.Writer, prompts keyPrompter) error {
 	if _, err := os.Lstat(filepath.Join(dir, "config.json")); !errors.Is(err, os.ErrNotExist) {
 		return errors.New("existing configuration is never overwritten by setup; use 'mint setup --encrypt-key' to encrypt its key")
 	}
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return fmt.Errorf("cannot create Mint configuration directory: %w", err)
+	}
+	if err := applySandboxSettings(ctx, binary, dir, os.Environ(), stderr); err != nil {
+		return err
+	}
+	if _, err := fmt.Fprintln(stdout, "Configured Copilot credential policy in your existing settings. Tool and cache grants are unchanged."); err != nil {
+		return err
+	}
 	return encryptSetupKey(dir, cfg, prompts, stdout, false)
+}
+
+func configureSetup(ctx context.Context, stdout, stderr io.Writer) error {
+	dir, err := configDirectory()
+	if err != nil {
+		return err
+	}
+	cfg, err := readConfig(dir)
+	if err != nil {
+		return err
+	}
+	if err := applySandboxSettings(ctx, cfg.Copilot, dir, os.Environ(), stderr); err != nil {
+		return err
+	}
+	_, err = fmt.Fprintln(stdout, "Configured Copilot credential policy in your existing settings. Tool and cache grants are unchanged.")
+	return err
 }
 
 func copilotCredential(ctx context.Context) (string, error) {

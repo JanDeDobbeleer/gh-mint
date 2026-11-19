@@ -1,6 +1,6 @@
 $ErrorActionPreference = 'Stop'
 $versionScript = Join-Path $PSScriptRoot 'get-release-version.ps1'
-$root = Join-Path ([System.IO.Path]::GetTempPath()) "gh-mint-version-$([guid]::NewGuid().ToString('N'))"
+$root = Join-Path ([System.IO.Path]::GetTempPath()) "mint-version-$([guid]::NewGuid().ToString('N'))"
 $null = New-Item -ItemType Directory -Path $root
 $gitEnvironment = @{}
 $passed = 0
@@ -9,7 +9,7 @@ function Invoke-TestGit {
     param([string]$Repository, [string[]]$Arguments)
 
     $output = & git --no-pager -C $Repository -c core.hooksPath= -c commit.gpgSign=false `
-        -c tag.gpgSign=false -c user.name=gh-mint-tests -c user.email=tests@example.invalid @Arguments
+        -c tag.gpgSign=false -c user.name=mint-tests -c user.email=tests@example.invalid @Arguments
     if ($LASTEXITCODE -ne 0) {
         throw "Git fixture setup failed: $($Arguments[0])."
     }

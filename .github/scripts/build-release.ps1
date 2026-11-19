@@ -39,7 +39,7 @@ try {
         if ($targetOS -eq 'windows') {
             $extension = '.exe'
         }
-        $output = Join-Path $OutputDirectory "$platform$extension"
+        $output = Join-Path $OutputDirectory "mint-$platform$extension"
         & go build -trimpath "-ldflags=-s -w -X=main.version=$Version" -o $output .
         if ($LASTEXITCODE -ne 0) {
             throw "Build failed for $platform."

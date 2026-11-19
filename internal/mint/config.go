@@ -28,11 +28,11 @@ func configDirectory() (string, error) {
 func readConfig(dir string) (config, error) {
 	data, err := os.ReadFile(filepath.Join(dir, "config.json"))
 	if err != nil {
-		return config{}, errors.New("cannot read configuration; run 'gh mint setup --help'")
+		return config{}, errors.New("cannot read configuration; run 'mint setup --help'")
 	}
 	var cfg config
 	if err := json.Unmarshal(data, &cfg); err != nil {
-		return config{}, errors.New("invalid gh-mint configuration")
+		return config{}, errors.New("invalid mint configuration")
 	}
 	if err := cfg.validate(); err != nil {
 		return config{}, err

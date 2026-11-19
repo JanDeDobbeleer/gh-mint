@@ -19,7 +19,7 @@ func TestCommandEntryPoints(t *testing.T) {
 		args []string
 	}{
 		{name: "setup help", args: []string{"setup", "--help"}},
-		{name: "config help", args: []string{"config", "--help"}, want: "Usage: gh mint config"},
+		{name: "config help", args: []string{"config", "--help"}, want: "Usage: mint config"},
 		{name: "invalid config arguments", args: []string{"config", "--no-sandbox"}, err: "without arguments"},
 		{name: "missing setup key", args: []string{"setup", "--app-id", "123"}, err: "are required"},
 		{name: "removed permission override", args: []string{"setup", "--permissions=contents=read"}, err: "invalid setup arguments"},

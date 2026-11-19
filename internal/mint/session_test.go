@@ -2,11 +2,11 @@ package mint
 
 import (
 	"bytes"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
-	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -21,10 +21,11 @@ import (
 )
 
 type childSnapshot struct {
-	Settings map[string]any    `json:"settings"`
-	Env      map[string]string `json:"env"`
-	CWD      string            `json:"cwd"`
-	Args     []string          `json:"args"`
+	Settings     map[string]any    `json:"settings"`
+	Env          map[string]string `json:"env"`
+	CWD          string            `json:"cwd"`
+	Instructions string            `json:"instructions"`
+	Args         []string          `json:"args"`
 }
 
 func TestMain(m *testing.M) {
@@ -65,6 +66,14 @@ func fakeCopilot() int {
 		if json.Unmarshal(data, &snapshot.Settings) != nil {
 			return 91
 		}
+	}
+	if dirs := os.Getenv("COPILOT_CUSTOM_INSTRUCTIONS_DIRS"); dirs != "" {
+		parts := strings.Split(dirs, ",")
+		data, err := os.ReadFile(filepath.Join(parts[len(parts)-1], gitInstructionsName))
+		if err != nil {
+			return 93
+		}
+		snapshot.Instructions = string(data)
 	}
 	if json.NewEncoder(os.Stdout).Encode(snapshot) != nil {
 		return 92
@@ -108,14 +117,6 @@ func TestSessionLaunchesAnIsolatedChildAndRevokesItsToken(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			var revoked atomic.Bool
-			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				assert.Equal(t, http.MethodDelete, r.Method)
-				assert.Equal(t, "/installation/token", r.URL.Path)
-				assert.Equal(t, "Bearer repository-test-token", r.Header.Get("Authorization"))
-				revoked.Store(true)
-				w.WriteHeader(http.StatusNoContent)
-			}))
-			defer server.Close()
 			root, err := canonicalPath(t.TempDir())
 			require.NoError(t, err)
 			keyDir := filepath.Join(t.TempDir(), "private")
@@ -129,7 +130,16 @@ func TestSessionLaunchesAnIsolatedChildAndRevokesItsToken(t *testing.T) {
 				args = []string{"--prompt=" + tt.prompt}
 			}
 			s := session{
-				github:  &githubClient{base: server.URL, http: server.Client()},
+				github: &githubClient{
+					base: "https://api.github.test",
+					http: &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+						assert.Equal(t, http.MethodDelete, request.Method)
+						assert.Equal(t, "/installation/token", request.URL.Path)
+						assert.Equal(t, "Bearer repository-test-token", request.Header.Get("Authorization"))
+						revoked.Store(true)
+						return testHTTPResponse(request, http.StatusNoContent, nil, ""), nil
+					})},
+				},
 				execute: execute, stdout: &stdout, stderr: &stderr, stdin: strings.NewReader(""),
 				cfg: config{Copilot: binary}, repo: repository{Root: root, Owner: "owner", Name: "project"},
 				copilotCredential: "copilot-account-secret",
@@ -137,7 +147,9 @@ func TestSessionLaunchesAnIsolatedChildAndRevokesItsToken(t *testing.T) {
 				environ: []string{
 					"GH_TOKEN=broad-user-secret", "github_token=other-secret", "GH_APP_PRIVATE_KEY=private-key",
 					"GH_APP_PRIVATE_KEY_FILE=key.pem", "AWS_SECRET_ACCESS_KEY=cloud-secret",
-					"NODE_OPTIONS=--require=untrusted.js", "PATH=" + os.Getenv("PATH"),
+					"NODE_OPTIONS=--require=untrusted.js", "GIT_CONFIG_COUNT=1",
+					"GIT_CONFIG_KEY_0=credential.helper", "GIT_CONFIG_VALUE_0=personal-helper",
+					"PATH=" + os.Getenv("PATH"),
 					"SYSTEMROOT=" + os.Getenv("SYSTEMROOT"), "TEMP=" + os.TempDir(),
 				},
 			}
@@ -146,7 +158,7 @@ func TestSessionLaunchesAnIsolatedChildAndRevokesItsToken(t *testing.T) {
 			if tt.customHome {
 				home = t.TempDir()
 				require.NoError(t, os.WriteFile(filepath.Join(home, "settings.json"), []byte(settings), 0o600))
-				s.environ = append(s.environ, "COPILOT_HOME="+home)
+				s.environ = append(s.environ, "COPILOT_HOME="+home, "COPILOT_CUSTOM_INSTRUCTIONS_DIRS="+home)
 			}
 			err = s.runWithToken(t.Context(), installationToken{Token: "repository-test-token", ExpiresAt: time.Now().Add(time.Hour)})
 			assert.True(t, revoked.Load())
@@ -168,8 +180,22 @@ func TestSessionLaunchesAnIsolatedChildAndRevokesItsToken(t *testing.T) {
 			require.NoError(t, json.Unmarshal(stdout.Bytes(), &child))
 			assert.Equal(t, root, child.CWD)
 			assert.Equal(t, "repository-test-token", child.Env["GH_TOKEN"])
+			gitAuth := base64.StdEncoding.EncodeToString([]byte("x-access-token:repository-test-token"))
+			assert.Equal(t, gitAuth, child.Env["MINT_GIT_AUTH"])
+			wantDirs := filepath.Join(child.Env["GH_CONFIG_DIR"], "instructions")
+			if tt.customHome {
+				wantDirs = home + "," + wantDirs
+			}
+			assert.Equal(t, wantDirs, child.Env["COPILOT_CUSTOM_INSTRUCTIONS_DIRS"])
+			assert.Contains(t, child.Instructions, "git \"--config-env=")
+			assert.Contains(t, child.Instructions, "gh pr create --head")
+			assert.NotContains(t, child.Instructions, gitAuth)
+			assert.NotContains(t, child.Instructions, "repository-test-token")
 			assert.Equal(t, "owner/project", child.Env["GH_REPO"])
 			assert.Equal(t, "copilot-account-secret", child.Env["COPILOT_GITHUB_TOKEN"])
+			assert.Equal(t, "1", child.Env["GIT_CONFIG_COUNT"])
+			assert.Equal(t, "credential.helper", child.Env["GIT_CONFIG_KEY_0"])
+			assert.Empty(t, child.Env["GIT_CONFIG_VALUE_0"])
 			for _, name := range []string{"github_token", "GH_APP_PRIVATE_KEY", "GH_APP_PRIVATE_KEY_FILE", "AWS_SECRET_ACCESS_KEY", "NODE_OPTIONS"} {
 				assert.NotContains(t, child.Env, name)
 			}
@@ -193,6 +219,47 @@ func TestSessionLaunchesAnIsolatedChildAndRevokesItsToken(t *testing.T) {
 			assert.NoDirExists(t, child.Env["GH_CONFIG_DIR"])
 		})
 	}
+}
+
+func TestGitKeepsSSHRemoteAndIgnoresOtherCredentialHelpers(t *testing.T) {
+	git, err := exec.LookPath("git")
+	require.NoError(t, err)
+	root := t.TempDir()
+	runGit := func(args ...string) string {
+		t.Helper()
+		command := exec.Command(git, args...)
+		output, err := command.CombinedOutput()
+		require.NoError(t, err, string(output))
+		return strings.TrimSpace(string(output))
+	}
+	runGit("init", "--quiet", root)
+	runGit("-C", root, "remote", "add", "origin", "git@github.com:owner/project.git")
+	runGit("-C", root, "config", "credential.helper", "personal-helper")
+	runGit("-C", root, "config", "credential.https://github.com.helper", "personal-helper")
+
+	globalConfig := filepath.Join(t.TempDir(), "gitconfig")
+	require.NoError(t, os.WriteFile(globalConfig, nil, 0o600))
+	environ := childEnvironment(os.Environ(), map[string]string{
+		"GIT_CONFIG_COUNT":    "1",
+		"GIT_CONFIG_KEY_0":    "credential.helper",
+		"GIT_CONFIG_VALUE_0":  "",
+		"GIT_CONFIG_GLOBAL":   globalConfig,
+		"GIT_CONFIG_NOSYSTEM": "1",
+		"GIT_TERMINAL_PROMPT": "0",
+	})
+
+	urlCommand := exec.Command(git, "-C", root, "remote", "get-url", "origin")
+	urlCommand.Env = environ
+	urlOutput, err := urlCommand.CombinedOutput()
+	require.NoError(t, err, string(urlOutput))
+	assert.Equal(t, "git@github.com:owner/project.git", strings.TrimSpace(string(urlOutput)))
+
+	credentialCommand := exec.Command(git, "-C", root, "credential", "fill")
+	credentialCommand.Env = environ
+	credentialCommand.Stdin = strings.NewReader("protocol=https\nhost=github.com\npath=owner/project.git\n\n")
+	credentialOutput, err := credentialCommand.CombinedOutput()
+	require.Error(t, err)
+	assert.NotContains(t, string(credentialOutput), "personal-helper")
 }
 
 func TestProjectConfigurationCannotEnableAdditionalCredentialRoutes(t *testing.T) {
@@ -259,17 +326,18 @@ func TestSupportedCopilotVersions(t *testing.T) {
 	}
 }
 
-const scopedSandboxSettings = `{"sandbox":{"allowBypass":false,"auth":{"git":false,"gh":false},"credentials":{"envVars":{"GH_TOKEN":{"injectHosts":["github.com","uploads.github.com","api.github.com"]}}}}}`
+const scopedSandboxSettings = `{"sandbox":{"allowBypass":false,"auth":{"git":false,"gh":false},"credentials":{"envVars":{"GH_TOKEN":{"injectHosts":["github.com","uploads.github.com","api.github.com"]},"MINT_GIT_AUTH":{"injectHosts":["github.com"]}}}}}`
 
 func TestSandboxCredentialCheckUsesSavedSettings(t *testing.T) {
 	binary := fakeCopilotBinary(t)
 	tests := []struct{ name, settings, wantErr string }{
 		{"scoped settings", scopedSandboxSettings, ""},
-		{"personal git", strings.Replace(scopedSandboxSettings, `"git":false`, `"git":true`, 1), "sandbox.auth.git"},
+		{"git auth enabled", strings.Replace(scopedSandboxSettings, `"git":false`, `"git":true`, 1), "sandbox.auth.git"},
 		{"default gh", strings.Replace(scopedSandboxSettings, `,"gh":false`, "", 1), "sandbox.auth.gh"},
 		{"default bypass", strings.Replace(scopedSandboxSettings, `"allowBypass":false,`, "", 1), "sandbox.allowBypass"},
 		{"missing token mapping", strings.Replace(scopedSandboxSettings, `"GH_TOKEN"`, `"OTHER_TOKEN"`, 1), "injectHosts"},
 		{"extra host", strings.Replace(scopedSandboxSettings, `"api.github.com"`, `"api.github.com","example.com"`, 1), "injectHosts"},
+		{"missing Git credential mapping", strings.Replace(scopedSandboxSettings, `"MINT_GIT_AUTH"`, `"OTHER_AUTH"`, 1), "MINT_GIT_AUTH"},
 		{"no sandbox settings", `{}`, "sandbox.auth.git"},
 	}
 	if os.PathSeparator == '\\' {
@@ -292,23 +360,44 @@ func TestSandboxCredentialCheckUsesSavedSettings(t *testing.T) {
 }
 
 func TestCopilotReadsSavedSandboxPolicy(t *testing.T) {
-	binary := os.Getenv("GH_MINT_TEST_COPILOT")
+	binary := os.Getenv("MINT_TEST_COPILOT")
 	if binary == "" {
-		t.Skip("set GH_MINT_TEST_COPILOT to opt into the installed CLI configuration check")
+		t.Skip("set MINT_TEST_COPILOT to opt into the installed CLI configuration check")
 	}
 	require.NoError(t, checkSandboxSettingsFile(t, binary, scopedSandboxSettings))
 }
 
-func TestApplySandboxSettingsWithCopilot(t *testing.T) {
-	binary := os.Getenv("GH_MINT_TEST_COPILOT")
+func TestCopilotDiscoversSessionGitInstructions(t *testing.T) {
+	binary := os.Getenv("MINT_TEST_COPILOT")
 	if binary == "" {
-		t.Skip("set GH_MINT_TEST_COPILOT to opt into the installed CLI configuration check")
+		t.Skip("set MINT_TEST_COPILOT to opt into the installed CLI instruction check")
+	}
+	dir := t.TempDir()
+	path := filepath.Join(dir, gitInstructionsName)
+	require.NoError(t, os.WriteFile(path, gitInstructions, 0o600))
+	cmd := exec.CommandContext(t.Context(), binary, "instruction", "list", "--json")
+	cmd.Dir = t.TempDir()
+	cmd.Env = childEnvironment(os.Environ(), map[string]string{
+		"COPILOT_HOME":                     t.TempDir(),
+		"COPILOT_CUSTOM_INSTRUCTIONS_DIRS": dir,
+	})
+	output, err := cmd.CombinedOutput()
+	require.NoError(t, err, string(output))
+	encoded, err := json.Marshal(path)
+	require.NoError(t, err)
+	assert.Contains(t, string(output), string(encoded))
+}
+
+func TestApplySandboxSettingsWithCopilot(t *testing.T) {
+	binary := os.Getenv("MINT_TEST_COPILOT")
+	if binary == "" {
+		t.Skip("set MINT_TEST_COPILOT to opt into the installed CLI configuration check")
 	}
 	home := t.TempDir()
 	t.Setenv("COPILOT_HOME", home)
 	path := filepath.Join(home, "settings.json")
 	const initial = `{"theme":"dark","sandbox":{"allowDevToolAccess":false,"allowBypass":true,
-"auth":{"git":true,"gh":true},
+"auth":{"git":false,"gh":true},
 "credentials":{"envVars":{"GH_TOKEN":{"injectHosts":["old.example.com"]},"OTHER_TOKEN":{"injectHosts":["keep.example.com"]}}},
 "userPolicy":{"filesystem":{"readonlyPaths":["~/toolchain"],"readwritePaths":["~/build-cache"]},"network":{"allowLocalNetwork":false}}}}`
 	require.NoError(t, os.WriteFile(path, []byte(initial), 0o600))
@@ -321,10 +410,12 @@ func TestApplySandboxSettingsWithCopilot(t *testing.T) {
 	assert.Equal(t, "dark", settings["theme"])
 	sandbox := settings["sandbox"].(map[string]any)
 	assert.Equal(t, false, sandbox["allowDevToolAccess"])
+	assert.Equal(t, map[string]any{"git": false, "gh": false}, sandbox["auth"])
 	userPolicy := sandbox["userPolicy"].(map[string]any)
 	assert.Equal(t, map[string]any{"readonlyPaths": []any{"~/toolchain"}, "readwritePaths": []any{"~/build-cache"}}, userPolicy["filesystem"])
 	assert.Equal(t, os.PathSeparator == '\\', userPolicy["network"].(map[string]any)["allowLocalNetwork"])
 	envVars := sandbox["credentials"].(map[string]any)["envVars"].(map[string]any)
+	assert.Equal(t, map[string]any{"injectHosts": []any{"github.com"}}, envVars["MINT_GIT_AUTH"])
 	assert.Equal(t, map[string]any{"injectHosts": []any{"keep.example.com"}}, envVars["OTHER_TOKEN"])
 	require.NoError(t, applySandboxSettings(t.Context(), binary, home, os.Environ(), &stderr), stderr.String())
 	unchanged, err := os.ReadFile(path)

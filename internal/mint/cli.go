@@ -13,13 +13,13 @@ import (
 	"time"
 )
 
-const help = `Mint a single-repository GitHub App token and launch sandboxed Copilot.
+const help = `mint scopes GitHub App access to one repository and launches sandboxed Copilot.
 
 Usage:
-  gh mint setup --app-id ID --key-file PATH [options]
-  gh mint setup --encrypt-key
-  gh mint config
-  gh mint [COPILOT ARGUMENTS...]
+  mint setup --app-id ID --key-file PATH [options]
+  mint setup --encrypt-key
+  mint config
+  mint [COPILOT ARGUMENTS...]
 
 Setup options:
   --app-id ID          GitHub App numeric ID
@@ -39,14 +39,14 @@ Create and install a GitHub App:
   5. Open Credentials > Key pairs > New key. Secure the downloaded PEM in a
      dedicated directory outside checkouts; remove leftover download copies.
   6. Select Install App > target account > Only select repositories.
-  7. Run gh mint setup --app-id ID --key-file PATH, then gh mint config.
-     Start a session with gh mint in a checkout.
+  7. Run mint setup --app-id ID --key-file PATH, then mint config.
+     Start a session with mint in a checkout.
 
 Permissions:
   The App installation is the source of truth. Tokens inherit all its granted
   permissions; there is no launcher permission override or read-only default.
   Change permissions in GitHub App settings and approve installation changes
-  when required, then restart gh mint to mint a new token.
+  when required, then restart mint to mint a new token.
   Old configuration "permissions" fields are ignored and may be removed.
   Every token is restricted to the current repository, regardless of permission level.
 
@@ -59,20 +59,21 @@ to delete the original only after configuration succeeds. Launches ask for the
 passphrase in a hidden terminal prompt; no decrypted PEM is written to disk.
 
 Each launch uses your usual Copilot home and requests the local sandbox.
-Configure its saved policy to disable automatic git/gh authentication and mask
-GH_TOKEN for GitHub.com, with sandbox bypass disabled. Mint checks those settings
-without changing them at launch. Run 'gh mint config' to apply those settings.
-Mint uses temporary GitHub CLI configuration and filters COPILOT_GITHUB_TOKEN
+Configure its saved policy to disable automatic Git and gh authentication and
+bypass, and mask Mint's credentials. Run 'mint config' to apply those settings.
+Launches check the policy without changing it and load temporary instructions
+for authenticated Git HTTPS commands.
+mint uses temporary GitHub CLI configuration and filters COPILOT_GITHUB_TOKEN
 from shell and MCP environments.
 The environment allowlist drops inherited GitHub tokens and other unapproved variables.
-Mint disables built-in and discovered project MCP servers, and rejects conflicting
+mint disables built-in and discovered project MCP servers, and rejects conflicting
 project settings and active project language servers. Your own Copilot configuration
 still applies. Built-in file tools are denied access to the key and mint configuration
 directories; configure OS sandbox denies separately.
 
 Copilot arguments are forwarded unchanged, except flags that disable sandboxing
 or override secret filtering are rejected. Only pass arguments you trust.
-The Copilot host process runs outside its local command sandbox. Mint scopes the
+The Copilot host process runs outside its local command sandbox. mint scopes the
 token it issues; it is not an isolation boundary.
 `
 
@@ -149,7 +150,7 @@ func Run(ctx context.Context, args []string, _ string, stdin io.Reader, stdout, 
 }
 
 func setup(args []string, stdout, stderr io.Writer, prompts keyPrompter) error {
-	flags := flag.NewFlagSet("gh mint setup", flag.ContinueOnError)
+	flags := flag.NewFlagSet("mint setup", flag.ContinueOnError)
 	flags.SetOutput(stderr)
 	appID := flags.String("app-id", "", "GitHub App numeric ID")
 	keyFile := flags.String("key-file", "", "path to an RSA PEM file")
@@ -161,13 +162,13 @@ func setup(args []string, stdout, stderr io.Writer, prompts keyPrompter) error {
 		if errors.Is(err, flag.ErrHelp) {
 			return nil
 		}
-		return errors.New("invalid setup arguments; run 'gh mint setup --help'")
+		return errors.New("invalid setup arguments; run 'mint setup --help'")
 	}
 	if *encryptKey {
 		otherFlags := false
 		flags.Visit(func(f *flag.Flag) { otherFlags = otherFlags || f.Name != "encrypt-key" })
 		if flags.NArg() != 0 || otherFlags {
-			return errors.New("use 'gh mint setup --encrypt-key' without other setup options")
+			return errors.New("use 'mint setup --encrypt-key' without other setup options")
 		}
 		dir, err := configDirectory()
 		if err != nil {
@@ -180,7 +181,7 @@ func setup(args []string, stdout, stderr io.Writer, prompts keyPrompter) error {
 		return encryptSetupKey(dir, cfg, prompts, stdout, true)
 	}
 	if flags.NArg() != 0 || *keyFile == "" {
-		return errors.New("--app-id and --key-file are required; run 'gh mint setup --help'")
+		return errors.New("--app-id and --key-file are required; run 'mint setup --help'")
 	}
 	id, err := parseAppID(*appID)
 	if err != nil {
@@ -209,7 +210,7 @@ func setup(args []string, stdout, stderr io.Writer, prompts keyPrompter) error {
 		return err
 	}
 	if _, err := os.Lstat(filepath.Join(dir, "config.json")); !errors.Is(err, os.ErrNotExist) {
-		return errors.New("existing configuration is never overwritten by setup; use 'gh mint setup --encrypt-key' to encrypt its key")
+		return errors.New("existing configuration is never overwritten by setup; use 'mint setup --encrypt-key' to encrypt its key")
 	}
 	return encryptSetupKey(dir, cfg, prompts, stdout, false)
 }

@@ -130,8 +130,11 @@ Setup pins the resolved executable path. If an upgrade moves the actual Copilot 
 ## Copilot authentication
 
 mint uses `COPILOT_GITHUB_TOKEN` for Copilot itself, falling back to `gh auth token --hostname github.com`.
-Sandboxed `gh` commands use the separate App token supplied as `GH_TOKEN`. Plain `git push` does not use it
-automatically.
+Sandboxed `gh` commands use the separate App token supplied as `GH_TOKEN`. Mint disables automatic Git authentication
+and supplies a separately masked HTTPS credential in `MINT_GIT_AUTH`. Mint puts `mint-git.instructions.md` in a temporary
+session directory and adds it to `COPILOT_CUSTOM_INSTRUCTIONS_DIRS`. The instructions show Copilot how to use
+`git --config-env` against the scoped repository and how to open a PR after pushing. The file contains no secrets.
+This guides the agent; it does not change how plain `git push` works or rewrite Git remotes.
 
 Run `mint config` once to apply the policy below to your existing Copilot home, or merge it into `settings.json`
 yourself. It applies to sandboxed Copilot sessions using that home. The command leaves tool grants unchanged and
@@ -146,6 +149,9 @@ does not enable sandboxing for ordinary Copilot launches. mint checks the policy
       "envVars": {
         "GH_TOKEN": {
           "injectHosts": ["github.com", "api.github.com", "uploads.github.com"]
+        },
+        "MINT_GIT_AUTH": {
+          "injectHosts": ["github.com"]
         }
       }
     }

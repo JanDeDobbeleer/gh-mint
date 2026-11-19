@@ -59,9 +59,10 @@ to delete the original only after configuration succeeds. Launches ask for the
 passphrase in a hidden terminal prompt; no decrypted PEM is written to disk.
 
 Each launch uses your usual Copilot home and requests the local sandbox.
-Configure its saved policy to disable automatic git/gh authentication and mask
-GH_TOKEN for GitHub.com, with sandbox bypass disabled. mint checks those settings
-without changing them at launch. Run 'mint config' to apply those settings.
+Configure its saved policy to disable automatic Git and gh authentication and
+bypass, and mask Mint's credentials. Run 'mint config' to apply those settings.
+Launches check the policy without changing it and load temporary instructions
+for authenticated Git HTTPS commands.
 mint uses temporary GitHub CLI configuration and filters COPILOT_GITHUB_TOKEN
 from shell and MCP environments.
 The environment allowlist drops inherited GitHub tokens and other unapproved variables.

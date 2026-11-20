@@ -48,8 +48,12 @@ back to another credential.
 
 ## Commands and pull requests
 
-- Use the active shell's syntax. In PowerShell, avoid complex `--jq` quoting; request
-  JSON with the command's `--json` option and parse it with PowerShell when needed.
+- On Windows, prefer PowerShell 7 (`pwsh.exe`). Use Windows PowerShell 5.1 if
+  PowerShell 7 is unavailable and the command is permitted in the sandbox.
+  Never switch shells to retry an operation the sandbox denied. On other
+  platforms, use the active shell's syntax.
+- In PowerShell, avoid complex `--jq` quoting; request JSON with the command's
+  `--json` option and parse it with PowerShell when needed.
 - Check each command's exit code and output before running dependent commands.
 - After pushing, use `gh pr create --head` with the pushed branch so `gh` does not
   attempt another push.

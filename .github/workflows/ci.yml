@@ -34,6 +34,21 @@ jobs:
         if: runner.os == 'Windows'
         shell: powershell
         run: .\.github\scripts\test-release-version.ps1
+      - name: Test Windows MSIX packaging
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path dist | Out-Null
+          $env:GOOS = 'windows'
+          $env:CGO_ENABLED = '0'
+          foreach ($architecture in @('386', 'amd64', 'arm64')) {
+            $env:GOARCH = $architecture
+            go build -o "dist\mint-windows-$architecture.exe" .
+            if ($LASTEXITCODE -ne 0) {
+              throw "Windows $architecture build failed."
+            }
+          }
+          .\.github\scripts\build-msix.ps1 -Version v1.0.0
       - name: Install Go analyzers
         run: go install golang.org/x/tools/go/analysis/passes/modernize/cmd/modernize@v0.52.0 golang.org/x/tools/go/analysis/passes/fieldalignment/cmd/fieldalignment@v0.52.0
       - name: Modernize

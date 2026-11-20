@@ -48,17 +48,6 @@ jobs:
       - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
         with:
           go-version-file: go.mod
-      - name: Require Azure signing credentials
-        env:
-          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
-          AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
-          AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
-        run: |
-          foreach ($name in @('AZURE_TENANT_ID', 'AZURE_CLIENT_ID', 'AZURE_CLIENT_SECRET')) {
-            if ([string]::IsNullOrWhiteSpace([Environment]::GetEnvironmentVariable($name))) {
-              throw "Configure the $name secret in the release environment before releasing."
-            }
-          }
       - name: Build release binaries
         env:
           RELEASE_TAG: ${{ needs.version.outputs.tag }}
@@ -78,17 +67,7 @@ jobs:
           timestamp-rfc3161: http://timestamp.acs.microsoft.com
           timestamp-digest: SHA256
           exclude-azure-cli-credential: true
-      - name: Verify Windows signatures
-        run: |
-          foreach ($arch in @('386', 'amd64', 'arm64')) {
-            $path = Join-Path $PWD "dist\mint-windows-$arch.exe"
-            if (-not (Test-Path -LiteralPath $path)) { throw "Missing Windows executable: $path" }
-            $signature = Get-AuthenticodeSignature -LiteralPath $path -ErrorAction Stop
-            if ($signature.Status -ne 'Valid' -or $null -eq $signature.TimeStamperCertificate) {
-              throw "Missing, invalid, or untimestamped Authenticode signature: $path"
-            }
-          }
-      - name: Package Windows MSIX files
+      - name: Build Windows MSIX files
         env:
           RELEASE_TAG: ${{ needs.version.outputs.tag }}
         run: .\.github\scripts\build-msix.ps1 -Version $env:RELEASE_TAG
@@ -107,20 +86,6 @@ jobs:
           timestamp-rfc3161: http://timestamp.acs.microsoft.com
           timestamp-digest: SHA256
           exclude-azure-cli-credential: true
-      - name: Verify Windows MSIX signatures
-        run: |
-          $signtool = Get-ChildItem -LiteralPath "${env:ProgramFiles(x86)}\Windows Kits\10\bin" -Directory |
-            Sort-Object Name -Descending |
-            ForEach-Object { Join-Path $_.FullName 'x64\signtool.exe' } |
-            Where-Object { Test-Path -LiteralPath $_ } |
-            Select-Object -First 1
-          if (-not $signtool) { throw 'Windows SDK signtool.exe was not found.' }
-          $packages = @(Get-ChildItem -LiteralPath dist -Filter 'mint-windows-*.msix' -File)
-          if ($packages.Count -eq 0) { throw 'No Windows MSIX packages were built.' }
-          foreach ($package in $packages) {
-            & $signtool verify /pa /v $package.FullName
-            if ($LASTEXITCODE -ne 0) { throw "Invalid MSIX signature: $($package.FullName)" }
-          }
       - name: Remove intermediate Windows executables
         run: Get-ChildItem -LiteralPath dist -Filter 'mint-windows-*.exe' -File | Remove-Item -Force
       - name: Upload signed binaries

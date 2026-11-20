@@ -86,6 +86,11 @@ jobs:
           timestamp-rfc3161: http://timestamp.acs.microsoft.com
           timestamp-digest: SHA256
           exclude-azure-cli-credential: true
+      - name: Build AppInstaller files
+        env:
+          RELEASE_TAG: ${{ needs.version.outputs.tag }}
+          RELEASE_REPOSITORY: ${{ github.repository }}
+        run: .\.github\scripts\build-appinstaller.ps1 -Version $env:RELEASE_TAG -Repository $env:RELEASE_REPOSITORY
       - name: Remove intermediate Windows executables
         run: Get-ChildItem -LiteralPath dist -Filter 'mint-windows-*.exe' -File | Remove-Item -Force
       - name: Upload signed binaries

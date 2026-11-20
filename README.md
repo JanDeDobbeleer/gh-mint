@@ -27,15 +27,16 @@ Only GitHub.com is supported.
 
 ## Install
 
-On Windows, install the signed MSIX package from the latest
-[GitHub release](https://github.com/JanDeDobbeleer/gh-mint/releases):
+On Windows, install the matching `.appinstaller` file from the latest
+[GitHub release](https://github.com/JanDeDobbeleer/gh-mint/releases) for automatic updates. You can also install
+the signed MSIX package directly:
 
 ```powershell
 Add-AppxPackage .\mint-windows-amd64.msix
 mint setup --help
 ```
 
-The package installs the `mint.exe` command alias. Choose the package matching your processor architecture.
+The package installs the `mint.exe` command alias. Choose the file matching your processor architecture.
 On macOS, Linux, and FreeBSD, download the matching standalone binary from the same release and place it on `PATH`.
 No GitHub CLI extension is installed.
 
@@ -247,10 +248,10 @@ forwarding, PEM-directory guardrails, revocation,
 and exit-status propagation without live GitHub credentials.
 
 CI checks Windows, Linux, and macOS. Every push to protected `main` automatically builds standalone macOS, Linux, and FreeBSD
-binaries and architecture-specific Windows MSIX packages. Windows executables and MSIX packages are Authenticode
-signed with Azure Artifact Signing using the existing release signing setup. Signatures must be valid and timestamped
-before publication. Other platform binaries are not Authenticode signed. GitHub build provenance attestations cover
-the final release assets.
+binaries, architecture-specific Windows MSIX packages, and matching AppInstaller manifests. Windows executables
+and MSIX packages are Authenticode signed with Azure Artifact Signing using the existing release signing setup.
+Signatures must be valid and timestamped before publication. Other platform binaries are not Authenticode signed.
+GitHub build provenance attestations cover the final release assets.
 
 Before merging a release workflow change, configure the `AZURE_TENANT_ID`, `AZURE_CLIENT_ID`, and `AZURE_CLIENT_SECRET`
 secrets in the protected GitHub `release` environment using the existing oh-my-posh signing identity. Remove any

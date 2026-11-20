@@ -49,6 +49,20 @@ jobs:
             }
           }
           .\.github\scripts\build-msix.ps1 -Version v1.0.0
+          .\.github\scripts\build-appinstaller.ps1 -Version v1.0.0 -Repository JanDeDobbeleer/mint
+          foreach ($architecture in @(
+            @{Name = '386'; Package = 'x86'},
+            @{Name = 'amd64'; Package = 'x64'},
+            @{Name = 'arm64'; Package = 'arm64'}
+          )) {
+            $manifestPath = "dist\mint-windows-$($architecture.Name).appinstaller"
+            [xml]$manifest = Get-Content -LiteralPath $manifestPath -Raw
+            if ($manifest.AppInstaller.Version -ne '1.0.0.0' -or
+                $manifest.AppInstaller.MainPackage.ProcessorArchitecture -ne $architecture.Package -or
+                $manifest.AppInstaller.MainPackage.Uri -notlike ("*mint-windows-$($architecture.Name).msix")) {
+              throw "Invalid AppInstaller manifest for Windows $($architecture.Name)."
+            }
+          }
       - name: Install Go analyzers
         run: go install golang.org/x/tools/go/analysis/passes/modernize/cmd/modernize@v0.52.0 golang.org/x/tools/go/analysis/passes/fieldalignment/cmd/fieldalignment@v0.52.0
       - name: Modernize
